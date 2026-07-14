@@ -1,0 +1,1 @@
+ALTER TABLE "applications" ADD COLUMN "applicant_type" text DEFAULT 'single' NOT NULL;
