@@ -1,6 +1,66 @@
 # QCG Application & Onboarding Web Application  
 ## Concept for AZAV-Certified Measures under the Qualification Opportunities Act
 
+> **Developer quickstart** — architecture in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+>
+> ```bash
+> pnpm install
+> cp .env.example .env.local        # dev defaults work out of the box
+> docker compose up -d              # Postgres 16 on localhost:5433
+> pnpm db:migrate && pnpm db:seed   # schema + RLS + demo data
+> pnpm dev                          # http://localhost:3000
+> pnpm jobs:dev                     # reminder/escalation worker (separate terminal)
+> ```
+>
+> Sign in (internal console): `admin@demo.de` / `demo1234` or
+> `berater@demo.de` / `demo1234`. The seed prints **four magic links**
+> (availability check, contact correction, employer setup assistant, aptitude
+> test) — open them in a private window to see the no-login external flows.
+> Lost links are re-minted via "Link erzeugen" on the task board. E2E:
+> `npx playwright test` (server must be running, re-seeds automatically).
+>
+> Env vars (see `.env.example`): `DATABASE_URL` (RLS-enforced app role),
+> `MIGRATION_DATABASE_URL` (owner, migrations/seed only), `AUTH_SECRET`,
+> `TOKEN_SECRET` (must differ), `APP_BASE_URL`. Optional live integrations:
+> `APTITUDE_TEST_BASE_URL`, `WHATSAPP_ACCESS_TOKEN`,
+> `WHATSAPP_PHONE_NUMBER_ID`, `RESEND_API_KEY`, `RESEND_FROM_EMAIL`.
+> Without these, the app stays in demo-safe mode: task routing and audit logs
+> run normally, while WhatsApp/email dispatch is mocked.
+
+## Current Implementation Status
+
+The application currently supports an end-to-end QCG onboarding demo:
+
+- Internal lead pipeline, lead creation, call script, contact notes, eligibility
+  fields, and mandatory 20h/week over 6 months availability gate.
+- Automatic task routing from status changes, including internal tasks,
+  external magic-link tasks, reminders, and escalations.
+- Participant magic-link flows for contact correction, availability,
+  consent, appointment rescheduling, document upload, aptitude-test start,
+  and document signature.
+- Employer magic-link flows for Betriebsnummer, Employer Service status,
+  contact person, time model, and submission confirmation.
+- Configurable outbound messaging: Meta WhatsApp Cloud API and Resend email
+  are used when credentials are configured; otherwise the adapter logs mock
+  sends for local/demo runs.
+- Configurable aptitude-test launch URL via `APTITUDE_TEST_BASE_URL`; the app
+  appends `participant_id` to connect the external test provider back to the
+  participant record.
+- Document generation/checklist, application package export, canvas-based SES
+  signatures, signed PDF artifacts, application status tracking, and reports.
+
+Still not production-final:
+
+- Real WhatsApp templates, email sender/domain setup, and provider credentials
+  must be supplied by the customer.
+- The aptitude-test provider can be launched, but automatic result import is
+  not implemented yet.
+- BA/Arbeitsagentur form PDFs and field mappings are still placeholders.
+- Consent/privacy wording, retention rules, and signature acceptance need legal
+  review.
+- Canvas signatures are simple electronic signatures only; QES providers such
+  as Skribble/Yousign remain a later integration.
+
 ## 1. Objective
 
 The planned web application supports the complete process from the first contact with a potential participant to the preparation and submission of application documents for an AZAV-certified training measure under the German Qualification Opportunities Act (QCG).

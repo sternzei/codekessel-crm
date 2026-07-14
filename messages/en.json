@@ -1,0 +1,23 @@
+{
+  "app": {
+    "name": "QCG Application Platform"
+  },
+  "nav": {
+    "pipeline": "Pipeline",
+    "tasks": "Tasks",
+    "appointments": "Appointments",
+    "employers": "Employers",
+    "documents": "Documents",
+    "applications": "Applications",
+    "reports": "Reports",
+    "signOut": "Sign out"
+  },
+  "auth": {
+    "title": "Internal sign-in",
+    "subtitle": "Consultants and administration only. Participants and employers receive direct task links.",
+    "email": "Email",
+    "password": "Password",
+    "submit": "Sign in",
+    "error": "Sign-in failed. Please check email and password."
+  }
+}

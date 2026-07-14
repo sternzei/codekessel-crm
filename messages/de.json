@@ -1,0 +1,81 @@
+{
+  "app": {
+    "name": "QCG Antragsplattform"
+  },
+  "nav": {
+    "pipeline": "Pipeline",
+    "tasks": "Aufgaben",
+    "appointments": "Termine",
+    "employers": "Arbeitgeber",
+    "documents": "Dokumente",
+    "applications": "Anträge",
+    "reports": "Berichte",
+    "signOut": "Abmelden"
+  },
+  "auth": {
+    "title": "Interne Anmeldung",
+    "subtitle": "Nur für Beratung und Verwaltung. Teilnehmende und Arbeitgeber erhalten direkte Aufgaben-Links.",
+    "email": "E-Mail",
+    "password": "Passwort",
+    "submit": "Anmelden",
+    "error": "Anmeldung fehlgeschlagen. Bitte prüfen Sie E-Mail und Passwort."
+  },
+  "taskPage": {
+    "invalidTitle": "Link nicht mehr gültig",
+    "invalid": "Dieser Link ist ungültig. Bitte wenden Sie sich an Ihre Ansprechperson.",
+    "expired": "Dieser Link ist abgelaufen. Sie erhalten in Kürze einen neuen Link.",
+    "used": "Diese Aufgabe wurde bereits erledigt. Vielen Dank!",
+    "revoked": "Dieser Link wurde deaktiviert. Bitte wenden Sie sich an Ihre Ansprechperson.",
+    "doneTitle": "Vielen Dank!",
+    "doneBody": "Ihre Angaben wurden gespeichert. Sie erhalten automatisch die nächsten Schritte.",
+    "placeholderNote": "Diese Aufgabenseite wird in einer späteren Phase umgesetzt.",
+    "availability": {
+      "title": "Verfügbarkeit bestätigen",
+      "intro": "Für die geförderte Weiterbildung ist eine Teilnahme von ca. 20 Stunden pro Woche über etwa 6 Monate erforderlich. Bitte teilen Sie uns mit, ob das für Sie möglich ist.",
+      "options": {
+        "yes": "Ja, 20 Stunden pro Woche über 6 Monate sind möglich",
+        "probably_employer_pending": "Wahrscheinlich möglich, die Freigabe meines Arbeitgebers steht noch aus",
+        "partial": "Nur teilweise möglich",
+        "not_possible": "Aktuell nicht möglich",
+        "unclear": "Ich bin mir noch unsicher"
+      },
+      "submit": "Antwort senden"
+    }
+  },
+  "pipeline": {
+    "title": "Pipeline",
+    "subtitle": "Alle Leads und Teilnehmenden nach Status",
+    "empty": "Noch keine Leads vorhanden."
+  },
+  "tasks": {
+    "title": "Aufgaben",
+    "subtitle": "Offene Aufgaben nach Verantwortlichen",
+    "empty": "Keine offenen Aufgaben."
+  },
+  "placeholder": {
+    "phase": "Wird in Phase {phase} umgesetzt.",
+    "appointments": "Terminverwaltung mit automatischen Erinnerungen.",
+    "employers": "Arbeitgeber-Verwaltung und Einrichtungsassistent.",
+    "documents": "Dokumenten-Checkliste, PDF-Erstellung und Signaturen.",
+    "applications": "Antragspakete und Einreichungs-Tracking.",
+    "reports": "No-Show- und Drop-off-Auswertung entlang des Funnels."
+  },
+  "status": {
+    "participant": {
+      "new": "Neuer Lead",
+      "called": "Angerufen",
+      "not_reachable": "Nicht erreichbar",
+      "wrong_number": "Falsche Nummer",
+      "interested": "Interessiert",
+      "not_interested": "Kein Interesse",
+      "eligibility_unclear": "Förderung unklar",
+      "employer_pending": "Arbeitgeber offen",
+      "qualified": "Qualifiziert",
+      "test_phase": "Eignungstest",
+      "documents_phase": "Dokumente",
+      "application_phase": "Antrag",
+      "enrolled": "Eingeschrieben",
+      "lost": "Verloren"
+    }
+  }
+}

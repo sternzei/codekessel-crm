@@ -1,0 +1,54 @@
+:root {
+  /* Surfaces: warm paper, layered cards, deep ink sidebar */
+  --color-bg: oklch(97.5% 0.004 85);
+  --color-surface: oklch(100% 0 0);
+  --color-surface-raised: oklch(99% 0.002 85);
+  --color-ink: oklch(24% 0.02 260);
+  --color-ink-soft: oklch(40% 0.015 260);
+  --color-ink-faint: oklch(56% 0.01 260);
+  --color-line: oklch(88% 0.006 85);
+  --color-sidebar: oklch(23% 0.025 262);
+  --color-sidebar-text: oklch(88% 0.008 262);
+  --color-sidebar-muted: oklch(66% 0.015 262);
+
+  /* Accent: confident deep blue, used sparingly and semantically */
+  --color-accent: oklch(48% 0.14 258);
+  --color-accent-strong: oklch(40% 0.15 258);
+  --color-accent-soft: oklch(94% 0.025 258);
+
+  /* Semantic status */
+  --color-ok: oklch(55% 0.13 150);
+  --color-ok-soft: oklch(95% 0.04 150);
+  --color-warn: oklch(70% 0.14 75);
+  --color-warn-soft: oklch(96% 0.05 85);
+  --color-danger: oklch(55% 0.19 25);
+  --color-danger-soft: oklch(95.5% 0.025 25);
+
+  /* Type */
+  --font-sans: ui-sans-serif, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+  --text-xs: 0.75rem;
+  --text-sm: 0.855rem;
+  --text-base: clamp(0.95rem, 0.9rem + 0.2vw, 1rem);
+  --text-lg: 1.15rem;
+  --text-xl: clamp(1.4rem, 1.2rem + 0.8vw, 1.75rem);
+  --text-hero: clamp(1.6rem, 1.3rem + 1.6vw, 2.4rem);
+
+  /* Rhythm */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-6: 1.5rem;
+  --space-8: 2rem;
+  --space-12: 3rem;
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --shadow-card: 0 1px 2px oklch(24% 0.02 260 / 0.06), 0 4px 16px oklch(24% 0.02 260 / 0.05);
+  --shadow-raised: 0 2px 6px oklch(24% 0.02 260 / 0.08), 0 12px 32px oklch(24% 0.02 260 / 0.09);
+
+  --duration-fast: 150ms;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+}
