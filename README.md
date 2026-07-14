@@ -10,6 +10,7 @@
 > pnpm db:migrate && pnpm db:seed   # schema + RLS + demo data
 > pnpm dev                          # http://localhost:3000
 > pnpm jobs:dev                     # reminder/escalation worker (separate terminal)
+> pnpm test:unit                    # unit suite (utilities, transforms, gates)
 > ```
 >
 > Sign in (internal console): `admin@demo.de` / `demo1234` or
@@ -33,6 +34,9 @@ The application currently supports an end-to-end QCG onboarding demo:
 
 - Internal lead pipeline, lead creation, call script, contact notes, eligibility
   fields, and mandatory 20h/week over 6 months availability gate.
+- Undo (Ctrl/Cmd+Z) on the lead detail view: reverts the previous participant
+  status and cancels the follow-up tasks and scheduled reminders that the
+  undone transition spawned — without re-running the routing engine.
 - Automatic task routing from status changes, including internal tasks,
   external magic-link tasks, reminders, and escalations.
 - Participant magic-link flows for contact correction, availability,
@@ -48,6 +52,12 @@ The application currently supports an end-to-end QCG onboarding demo:
   participant record.
 - Document generation/checklist, application package export, canvas-based SES
   signatures, signed PDF artifacts, application status tracking, and reports.
+- Multi-signer co-signing: parallel signers with a `partially_signed` state,
+  finalization under a row lock, and a stamped artifact with an appended audit
+  certificate.
+- Analytics dashboard covering the §17 KPIs (contact, no-show, aptitude,
+  employer-approval, and submission rates) plus the lead→application funnel
+  with filters, computed from live SQL.
 
 Still not production-final:
 
@@ -55,7 +65,11 @@ Still not production-final:
   must be supplied by the customer.
 - The aptitude-test provider can be launched, but automatic result import is
   not implemented yet.
-- BA/Arbeitsagentur form PDFs and field mappings are still placeholders.
+- BA/Arbeitsagentur upload forms: the Trägerbescheinigung and the
+  Sammelantrag-Teilnehmerliste are wired against AcroForm autofill; the
+  remaining upload forms still need field mappings. The large AEZ-Antrag is
+  obsolete — applications are filed online via the BA eService (see
+  `docs/ESERVICE-ANTRAG.md`).
 - Consent/privacy wording, retention rules, and signature acceptance need legal
   review.
 - Canvas signatures are simple electronic signatures only; QES providers such
