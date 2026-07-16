@@ -1,3 +1,4 @@
+import { sql } from "drizzle-orm";
 import { index, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
 import { channel, entityKind, ownerKind, taskStatus } from "./enums";
 import { createdAt, tenantId, updatedAt } from "./helpers";
@@ -44,5 +45,19 @@ export const tasks = pgTable(
   (t) => [
     index("tasks_status_idx").on(t.tenantId, t.status),
     index("tasks_owner_user_idx").on(t.ownerUserId),
+    // Supports the routing/worker idempotency lookup: "is there already an
+    // active task for this (tenant, type, owner, subject)?". Deliberately
+    // NON-unique — see the routing engine (W1.2) / worker (W1.3) for why
+    // dedup is enforced in application code rather than as a hard constraint.
+    index("tasks_active_dedup_idx")
+      .on(
+        t.tenantId,
+        t.type,
+        t.ownerKind,
+        sql`coalesce(${t.ownerParticipantId}, ${t.ownerEmployerId}, ${t.ownerUserId})`,
+        t.subjectKind,
+        t.subjectId,
+      )
+      .where(sql`${t.status} in ('open', 'in_progress', 'waiting')`),
   ],
 );

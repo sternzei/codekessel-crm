@@ -1,0 +1,750 @@
+"use server";
+
+import { and, desc, eq, gte, inArray } from "drizzle-orm";
+import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
+import { z } from "zod";
+import { withTenant, type Tx } from "@/db/client";
+import {
+  activityLog,
+  appointments,
+  aptitudeTests,
+  contactNotes,
+  participants,
+  reminderJobs,
+  tasks,
+  users,
+} from "@/db/schema";
+import { logActivity } from "@/modules/audit/log";
+import { getSession, type SessionUser } from "@/modules/auth/session";
+import { processTransition } from "@/modules/routing/engine";
+import { resolveAptitudeTestUrl } from "@/modules/aptitude-tests/config";
+import {
+  assertAppointmentAvailability,
+  assertAptitudeInviteAvailability,
+} from "@/modules/participants/eligibility-gates";
+import { normalizePhone } from "@/modules/participants/phone";
+import {
+  AvailabilityGateError,
+  changeParticipantStatus,
+  recordAvailability,
+} from "@/modules/participants/transitions";
+
+// All internal (console) server actions. Every action re-checks the session —
+// the layout guard alone is not an authorization boundary.
+
+async function requireSession(): Promise<SessionUser> {
+  const session = await getSession();
+  if (!session) redirect("/auth/sign-in");
+  return session;
+}
+
+function leadPath(id: string): string {
+  return `/leads/${id}`;
+}
+
+// ---------------------------------------------------------------------------
+// Lead creation
+// ---------------------------------------------------------------------------
+
+const createLeadSchema = z.object({
+  firstName: z.string().trim().min(1),
+  lastName: z.string().trim().min(1),
+  email: z.string().trim().email().optional().or(z.literal("")),
+  phone: z.string().trim().optional(),
+  city: z.string().trim().optional(),
+  source: z.string().trim().optional(),
+});
+
+export async function createLead(formData: FormData): Promise<void> {
+  const session = await requireSession();
+  const parsed = createLeadSchema.safeParse({
+    firstName: formData.get("firstName"),
+    lastName: formData.get("lastName"),
+    email: formData.get("email"),
+    phone: formData.get("phone"),
+    city: formData.get("city"),
+    source: formData.get("source"),
+  });
+  if (!parsed.success) redirect("/leads/new?error=1");
+
+  const phone = parsed.data.phone || null;
+  const leadId = await withTenant(session.tenantId, async (tx) => {
+    const [lead] = await tx
+      .insert(participants)
+      .values({
+        tenantId: session.tenantId,
+        firstName: parsed.data.firstName,
+        lastName: parsed.data.lastName,
+        email: parsed.data.email || null,
+        phone,
+        phoneNormalized: normalizePhone({ raw: phone }).normalized,
+        city: parsed.data.city || null,
+        source: parsed.data.source || null,
+        assignedConsultantId: session.id,
+      })
+      .returning({ id: participants.id });
+
+    await logActivity(tx, {
+      tenantId: session.tenantId,
+      actorKind: "internal_user",
+      actorUserId: session.id,
+      subjectKind: "participant",
+      subjectId: lead.id,
+      event: "lead_created",
+    });
+    return lead.id;
+  });
+
+  revalidatePath("/pipeline");
+  redirect(leadPath(leadId));
+}
+
+// ---------------------------------------------------------------------------
+// Bulk assignment (pipeline workspace) — assign/unassign many leads at once.
+// Tenant-scoped via withTenant (RLS) and audited per lead. Status changes are
+// intentionally NOT bulk-editable here: they run through the gated
+// changeParticipantStatus path one lead at a time on the lead detail page.
+// ---------------------------------------------------------------------------
+
+const UNASSIGNED = "unassigned";
+
+const bulkAssignSchema = z.object({
+  participantIds: z.array(z.string().uuid()).min(1).max(500),
+  consultant: z.union([z.literal(UNASSIGNED), z.string().uuid()]),
+  returnTo: z.string().optional(),
+});
+
+/** Only redirect to same-origin pipeline URLs (never an open redirect). */
+function safePipelineReturn(returnTo: string | undefined): string {
+  if (returnTo && returnTo.startsWith("/pipeline")) return returnTo;
+  return "/pipeline";
+}
+
+export async function assignLeads(formData: FormData): Promise<void> {
+  const session = await requireSession();
+  const parsed = bulkAssignSchema.safeParse({
+    participantIds: formData.getAll("participantId").map(String),
+    consultant: formData.get("consultant"),
+    returnTo: formData.get("returnTo")?.toString(),
+  });
+  if (!parsed.success) redirect(safePipelineReturn(undefined));
+
+  const target =
+    parsed.data.consultant === UNASSIGNED ? null : parsed.data.consultant;
+
+  await withTenant(session.tenantId, async (tx) => {
+    // Reject a consultant that is not a real, active user in THIS tenant.
+    // RLS scopes the lookup, so a cross-tenant id simply resolves to nothing.
+    if (target) {
+      const [consultant] = await tx
+        .select({ id: users.id })
+        .from(users)
+        .where(and(eq(users.id, target), eq(users.active, true)));
+      if (!consultant) return;
+    }
+    const updated = await tx
+      .update(participants)
+      .set({ assignedConsultantId: target })
+      .where(inArray(participants.id, parsed.data.participantIds))
+      .returning({ id: participants.id });
+    for (const lead of updated) {
+      await logActivity(tx, {
+        tenantId: session.tenantId,
+        actorKind: "internal_user",
+        actorUserId: session.id,
+        subjectKind: "participant",
+        subjectId: lead.id,
+        event: "lead_assigned",
+        meta: { to: target ?? "unassigned" },
+      });
+    }
+  });
+
+  revalidatePath("/pipeline");
+  redirect(safePipelineReturn(parsed.data.returnTo));
+}
+
+// ---------------------------------------------------------------------------
+// Call outcomes + status changes (the call-script quick actions)
+// ---------------------------------------------------------------------------
+
+const statusSchema = z.enum(participants.status.enumValues);
+
+export async function setLeadStatus(formData: FormData): Promise<void> {
+  const session = await requireSession();
+  const participantId = z.string().uuid().parse(formData.get("participantId"));
+  const to = statusSchema.parse(formData.get("status"));
+  const note = z.string().trim().max(4000).optional().parse(
+    formData.get("note") ?? undefined,
+  );
+
+  let gateBlocked = false;
+  await withTenant(session.tenantId, async (tx) => {
+    try {
+      await changeParticipantStatus(tx, {
+        participantId,
+        to,
+        actorUserId: session.id,
+      });
+    } catch (error: unknown) {
+      if (error instanceof AvailabilityGateError) {
+        gateBlocked = true;
+        return;
+      }
+      throw error;
+    }
+    if (note) {
+      await addNoteRow(tx, session, participantId, note);
+    }
+  });
+
+  revalidatePath(leadPath(participantId));
+  revalidatePath("/pipeline");
+  if (gateBlocked) redirect(`${leadPath(participantId)}?gate=1`);
+}
+
+const availabilitySchema = z.enum(participants.availabilityStatus.enumValues);
+
+export async function setAvailability(formData: FormData): Promise<void> {
+  const session = await requireSession();
+  const participantId = z.string().uuid().parse(formData.get("participantId"));
+  const availability = availabilitySchema.parse(formData.get("availability"));
+
+  await withTenant(session.tenantId, (tx) =>
+    recordAvailability(tx, {
+      participantId,
+      availability,
+      actorKind: "internal_user",
+      actorUserId: session.id,
+    }),
+  );
+
+  revalidatePath(leadPath(participantId));
+  revalidatePath("/tasks");
+}
+
+// ---------------------------------------------------------------------------
+// Undo — revert the last participant action (Ctrl/Cmd + Z)
+// ---------------------------------------------------------------------------
+
+type ParticipantStatus = (typeof participants.status.enumValues)[number];
+type AvailabilityStatus =
+  (typeof participants.availabilityStatus.enumValues)[number];
+const REAL_STATUSES = new Set<string>(participants.status.enumValues);
+const AVAILABILITY_VALUES = new Set<string>(
+  participants.availabilityStatus.enumValues,
+);
+// recordAvailability logs "status_changed" with meta.status = `availability_<x>`.
+const AVAILABILITY_PREFIX = "availability_";
+
+// Task states that are still "live" and safe to cancel on undo. A `done` task
+// is intentionally left alone — undoing must not silently reopen finished work.
+const CANCELLABLE_TASK_STATES = [
+  "open",
+  "in_progress",
+  "waiting",
+  "escalated",
+] as const;
+
+// Column defaults — the fall-back target when a lead's *first* change is undone
+// and there is no earlier event to revert to.
+const DEFAULT_STATUS: ParticipantStatus = "new";
+const DEFAULT_AVAILABILITY: AvailabilityStatus = "unclear";
+
+/**
+ * Cancels the still-pending tasks + scheduled reminders a transition spawned.
+ * Tasks created in the same transaction share the change's transaction
+ * timestamp, so `createdAt >= since` captures exactly that fan-out.
+ */
+async function cancelSpawnedTasks(
+  tx: Tx,
+  participantId: string,
+  since: Date,
+): Promise<number> {
+  const cancelledTasks = await tx
+    .update(tasks)
+    .set({ status: "cancelled" })
+    .where(
+      and(
+        eq(tasks.subjectKind, "participant"),
+        eq(tasks.subjectId, participantId),
+        gte(tasks.createdAt, since),
+        inArray(tasks.status, [...CANCELLABLE_TASK_STATES]),
+      ),
+    )
+    .returning({ id: tasks.id });
+
+  if (cancelledTasks.length > 0) {
+    await tx
+      .update(reminderJobs)
+      .set({ status: "cancelled" })
+      .where(
+        and(
+          inArray(
+            reminderJobs.taskId,
+            cancelledTasks.map((t) => t.id),
+          ),
+          eq(reminderJobs.status, "scheduled"),
+        ),
+      );
+  }
+  return cancelledTasks.length;
+}
+
+/**
+ * The console's Ctrl/Cmd+Z. Reverts the most recent reversible action on a
+ * lead — a **status** change or an **availability** answer, whichever happened
+ * last (both are recorded as `status_changed` events, told apart by their
+ * meta.status). It reverts the affected column to the previous value (or the
+ * initial default if this was the first change), cancels the still-pending
+ * tasks/reminders that action spawned, and stamps a `*_reverted` audit event.
+ *
+ * It never re-runs the routing engine, so undo never spawns a fresh round of
+ * tasks for the reverted-to value.
+ */
+export async function undoLastAction(formData: FormData): Promise<void> {
+  const session = await requireSession();
+  const participantId = z.string().uuid().parse(formData.get("participantId"));
+
+  let outcome: "status" | "availability" | "none" = "none";
+  await withTenant(session.tenantId, async (tx) => {
+    const [participant] = await tx
+      .select()
+      .from(participants)
+      .where(eq(participants.id, participantId));
+    if (!participant) return;
+
+    const log = await tx
+      .select({ meta: activityLog.meta, createdAt: activityLog.createdAt })
+      .from(activityLog)
+      .where(
+        and(
+          eq(activityLog.subjectId, participantId),
+          eq(activityLog.event, "status_changed"),
+        ),
+      )
+      .orderBy(desc(activityLog.createdAt));
+
+    const events = log
+      .map((row) => ({
+        status: (row.meta as { status?: string } | null)?.status,
+        createdAt: row.createdAt,
+      }))
+      .filter(
+        (row): row is { status: string; createdAt: Date } =>
+          typeof row.status === "string",
+      );
+    if (events.length === 0) return;
+
+    const latest = events[0];
+
+    if (latest.status.startsWith(AVAILABILITY_PREFIX)) {
+      // Undo an availability answer → previous answer, else the default.
+      const prior = events
+        .slice(1)
+        .find((e) => e.status.startsWith(AVAILABILITY_PREFIX));
+      const answer = prior
+        ? prior.status.slice(AVAILABILITY_PREFIX.length)
+        : DEFAULT_AVAILABILITY;
+      const target = (
+        AVAILABILITY_VALUES.has(answer) ? answer : DEFAULT_AVAILABILITY
+      ) as AvailabilityStatus;
+
+      await tx
+        .update(participants)
+        .set({ availabilityStatus: target })
+        .where(eq(participants.id, participantId));
+      const cancelled = await cancelSpawnedTasks(
+        tx,
+        participantId,
+        latest.createdAt,
+      );
+      await logActivity(tx, {
+        tenantId: session.tenantId,
+        actorKind: "internal_user",
+        actorUserId: session.id,
+        subjectKind: "participant",
+        subjectId: participantId,
+        event: "availability_reverted",
+        meta: { to: target, cancelledTasks: cancelled },
+      });
+      outcome = "availability";
+      return;
+    }
+
+    if (REAL_STATUSES.has(latest.status)) {
+      // Undo a status change → previous real status, else the default.
+      const prior = events.slice(1).find((e) => REAL_STATUSES.has(e.status));
+      const target = (
+        prior ? prior.status : DEFAULT_STATUS
+      ) as ParticipantStatus;
+
+      await tx
+        .update(participants)
+        .set({ status: target })
+        .where(eq(participants.id, participantId));
+      const cancelled = await cancelSpawnedTasks(
+        tx,
+        participantId,
+        latest.createdAt,
+      );
+      await logActivity(tx, {
+        tenantId: session.tenantId,
+        actorKind: "internal_user",
+        actorUserId: session.id,
+        subjectKind: "participant",
+        subjectId: participantId,
+        event: "status_reverted",
+        meta: { from: latest.status, to: target, cancelledTasks: cancelled },
+      });
+      outcome = "status";
+    }
+  });
+
+  revalidatePath(leadPath(participantId));
+  revalidatePath("/pipeline");
+  revalidatePath("/tasks");
+  redirect(`${leadPath(participantId)}?undo=${outcome}`);
+}
+
+// ---------------------------------------------------------------------------
+// Eligibility (call-script data)
+// ---------------------------------------------------------------------------
+
+const eligibilitySchema = z.object({
+  participantId: z.string().uuid(),
+  employmentStatus: z
+    .enum(participants.employmentStatus.enumValues)
+    .optional(),
+  employerId: z.string().uuid().optional().or(z.literal("")),
+  measureId: z.string().uuid().optional().or(z.literal("")),
+  eligibilityNotes: z.string().trim().max(4000).optional(),
+});
+
+export async function updateEligibility(formData: FormData): Promise<void> {
+  const session = await requireSession();
+  const parsed = eligibilitySchema.parse({
+    participantId: formData.get("participantId"),
+    employmentStatus: formData.get("employmentStatus") || undefined,
+    employerId: formData.get("employerId") ?? "",
+    measureId: formData.get("measureId") ?? "",
+    eligibilityNotes: formData.get("eligibilityNotes") ?? undefined,
+  });
+
+  await withTenant(session.tenantId, async (tx) => {
+    await tx
+      .update(participants)
+      .set({
+        employmentStatus: parsed.employmentStatus ?? null,
+        employerId: parsed.employerId || null,
+        measureId: parsed.measureId || null,
+        eligibilityNotes: parsed.eligibilityNotes || null,
+      })
+      .where(eq(participants.id, parsed.participantId));
+
+    await logActivity(tx, {
+      tenantId: session.tenantId,
+      actorKind: "internal_user",
+      actorUserId: session.id,
+      subjectKind: "participant",
+      subjectId: parsed.participantId,
+      event: "eligibility_updated",
+    });
+  });
+
+  revalidatePath(leadPath(parsed.participantId));
+}
+
+// ---------------------------------------------------------------------------
+// Contact notes
+// ---------------------------------------------------------------------------
+
+async function addNoteRow(
+  tx: Tx,
+  session: SessionUser,
+  participantId: string,
+  body: string,
+  noteChannel: "internal" | "email" | "whatsapp" = "internal",
+): Promise<void> {
+  await tx.insert(contactNotes).values({
+    tenantId: session.tenantId,
+    participantId,
+    authorUserId: session.id,
+    channel: noteChannel,
+    body,
+  });
+}
+
+export async function addContactNote(formData: FormData): Promise<void> {
+  const session = await requireSession();
+  const participantId = z.string().uuid().parse(formData.get("participantId"));
+  const body = z.string().trim().min(1).max(4000).parse(formData.get("body"));
+
+  await withTenant(session.tenantId, (tx) =>
+    addNoteRow(tx, session, participantId, body),
+  );
+  revalidatePath(leadPath(participantId));
+}
+
+// ---------------------------------------------------------------------------
+// Appointments (Phase 3)
+// ---------------------------------------------------------------------------
+
+const appointmentSchema = z.object({
+  participantId: z.string().uuid(),
+  type: z.enum(appointments.type.enumValues),
+  scheduledAt: z.string().min(1),
+  notes: z.string().trim().max(2000).optional(),
+});
+
+export async function scheduleAppointment(formData: FormData): Promise<void> {
+  const session = await requireSession();
+  const parsed = appointmentSchema.parse({
+    participantId: formData.get("participantId"),
+    type: formData.get("type"),
+    scheduledAt: formData.get("scheduledAt"),
+    notes: formData.get("notes") ?? undefined,
+  });
+  const scheduledAt = new Date(parsed.scheduledAt);
+  if (Number.isNaN(scheduledAt.getTime())) return;
+
+  let gateBlocked = false;
+  await withTenant(session.tenantId, async (tx) => {
+    const [participant] = await tx
+      .select()
+      .from(participants)
+      .where(eq(participants.id, parsed.participantId));
+    if (!participant) return;
+
+    // Same 20h/6-month gate as status transitions — the aptitude-test
+    // appointment must not be booked before availability is a clear "yes".
+    try {
+      assertAppointmentAvailability(parsed.type, participant.availabilityStatus);
+    } catch (error: unknown) {
+      if (error instanceof AvailabilityGateError) {
+        gateBlocked = true;
+        return;
+      }
+      throw error;
+    }
+
+    const [appointment] = await tx
+      .insert(appointments)
+      .values({
+        tenantId: session.tenantId,
+        participantId: participant.id,
+        consultantId: session.id,
+        type: parsed.type,
+        scheduledAt,
+        notes: parsed.notes || null,
+      })
+      .returning({ id: appointments.id });
+
+    // "scheduled" transition → reminder task + WhatsApp/call reminder jobs.
+    await processTransition(tx, {
+      tenantId: session.tenantId,
+      entity: "appointment",
+      entityId: appointment.id,
+      status: "scheduled",
+      actorKind: "internal_user",
+      actorUserId: session.id,
+      context: {
+        participantId: participant.id,
+        employerId: participant.employerId ?? undefined,
+        consultantId: session.id,
+        referenceAt: scheduledAt,
+        variables: {
+          time: scheduledAt.toLocaleString("de-DE", {
+            timeZone: "Europe/Berlin",
+            dateStyle: "medium",
+            timeStyle: "short",
+          }),
+        },
+      },
+    });
+  });
+
+  revalidatePath(leadPath(parsed.participantId));
+  revalidatePath("/appointments");
+  if (gateBlocked) redirect(`${leadPath(parsed.participantId)}?gate=1`);
+}
+
+const appointmentStatusSchema = z.enum(appointments.status.enumValues);
+
+export async function setAppointmentStatus(formData: FormData): Promise<void> {
+  const session = await requireSession();
+  const appointmentId = z.string().uuid().parse(formData.get("appointmentId"));
+  const status = appointmentStatusSchema.parse(formData.get("status"));
+
+  await withTenant(session.tenantId, async (tx) => {
+    const [appointment] = await tx
+      .select()
+      .from(appointments)
+      .where(eq(appointments.id, appointmentId));
+    if (!appointment) return;
+
+    await tx
+      .update(appointments)
+      .set({ status })
+      .where(eq(appointments.id, appointmentId));
+
+    const [participant] = await tx
+      .select()
+      .from(participants)
+      .where(eq(participants.id, appointment.participantId));
+
+    await processTransition(tx, {
+      tenantId: session.tenantId,
+      entity: "appointment",
+      entityId: appointmentId,
+      status,
+      actorKind: "internal_user",
+      actorUserId: session.id,
+      context: {
+        participantId: appointment.participantId,
+        employerId: participant?.employerId ?? undefined,
+        consultantId: appointment.consultantId ?? session.id,
+      },
+    });
+  });
+
+  revalidatePath("/appointments");
+}
+
+// ---------------------------------------------------------------------------
+// Aptitude tests (Phase 3: status tracking)
+// ---------------------------------------------------------------------------
+
+export async function inviteAptitudeTest(formData: FormData): Promise<void> {
+  const session = await requireSession();
+  const participantId = z.string().uuid().parse(formData.get("participantId"));
+
+  let gateBlocked = false;
+  await withTenant(session.tenantId, async (tx) => {
+    const [participant] = await tx
+      .select()
+      .from(participants)
+      .where(eq(participants.id, participantId));
+    if (!participant) return;
+
+    // Gate the invite behind the same availability confirmation used for the
+    // qualified/test_phase status transitions — no reimplementation of the rule.
+    try {
+      assertAptitudeInviteAvailability(participant.availabilityStatus);
+    } catch (error: unknown) {
+      if (error instanceof AvailabilityGateError) {
+        gateBlocked = true;
+        return;
+      }
+      throw error;
+    }
+
+    const [test] = await tx
+      .insert(aptitudeTests)
+      .values({
+        tenantId: session.tenantId,
+        participantId,
+        status: "invited",
+        invitedAt: new Date(),
+        testUrl: resolveAptitudeTestUrl(participantId),
+      })
+      .returning({ id: aptitudeTests.id });
+
+    // Rule sends the participant a magic link + schedules 24h/48h reminders.
+    await processTransition(tx, {
+      tenantId: session.tenantId,
+      entity: "aptitude_test",
+      entityId: test.id,
+      status: "invited",
+      actorKind: "internal_user",
+      actorUserId: session.id,
+      context: {
+        participantId,
+        employerId: participant.employerId ?? undefined,
+        consultantId: participant.assignedConsultantId ?? session.id,
+      },
+    });
+  });
+
+  revalidatePath(leadPath(participantId));
+  if (gateBlocked) redirect(`${leadPath(participantId)}?gate=1`);
+}
+
+const testStatusSchema = z.enum(aptitudeTests.status.enumValues);
+
+export async function setAptitudeTestStatus(
+  formData: FormData,
+): Promise<void> {
+  const session = await requireSession();
+  const testId = z.string().uuid().parse(formData.get("testId"));
+  const status = testStatusSchema.parse(formData.get("status"));
+
+  await withTenant(session.tenantId, async (tx) => {
+    const [test] = await tx
+      .select()
+      .from(aptitudeTests)
+      .where(eq(aptitudeTests.id, testId));
+    if (!test) return;
+
+    await tx
+      .update(aptitudeTests)
+      .set({
+        status,
+        startedAt: status === "started" ? new Date() : test.startedAt,
+        completedAt: ["completed", "passed", "failed"].includes(status)
+          ? new Date()
+          : test.completedAt,
+      })
+      .where(eq(aptitudeTests.id, testId));
+
+    const [participant] = await tx
+      .select()
+      .from(participants)
+      .where(eq(participants.id, test.participantId));
+
+    await processTransition(tx, {
+      tenantId: session.tenantId,
+      entity: "aptitude_test",
+      entityId: testId,
+      status,
+      actorKind: "internal_user",
+      actorUserId: session.id,
+      context: {
+        participantId: test.participantId,
+        employerId: participant?.employerId ?? undefined,
+        consultantId: participant?.assignedConsultantId ?? session.id,
+      },
+    });
+  });
+
+  revalidatePath("/tasks");
+  revalidatePath("/pipeline");
+}
+
+// ---------------------------------------------------------------------------
+// Task completion (internal dashboard)
+// ---------------------------------------------------------------------------
+
+export async function completeTask(formData: FormData): Promise<void> {
+  const session = await requireSession();
+  const taskId = z.string().uuid().parse(formData.get("taskId"));
+
+  await withTenant(session.tenantId, async (tx) => {
+    await tx
+      .update(tasks)
+      .set({ status: "done", completedAt: new Date() })
+      .where(eq(tasks.id, taskId));
+
+    await logActivity(tx, {
+      tenantId: session.tenantId,
+      actorKind: "internal_user",
+      actorUserId: session.id,
+      subjectKind: "task",
+      subjectId: taskId,
+      event: "task_completed",
+    });
+  });
+
+  revalidatePath("/tasks");
+}
