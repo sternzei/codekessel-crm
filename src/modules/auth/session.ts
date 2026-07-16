@@ -75,3 +75,15 @@ export async function destroySession(): Promise<void> {
   const store = await cookies();
   store.delete(SESSION_COOKIE);
 }
+
+/**
+ * Returns the session only if the user is an admin. The role lives in the
+ * signed session cookie, so this is a real authorization check, not a UI hint.
+ * Admin-only surfaces (e.g. the OpenRegister import) call this in the server
+ * action itself — never rely on hiding a nav link alone.
+ */
+export async function getAdminSession(): Promise<SessionUser | null> {
+  const session = await getSession();
+  if (!session || session.role !== "admin") return null;
+  return session;
+}

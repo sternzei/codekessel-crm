@@ -3,6 +3,7 @@ export * from "./tenants";
 export * from "./users";
 export * from "./measures";
 export * from "./employers";
+export * from "./import-runs";
 export * from "./participants";
 export * from "./appointments";
 export * from "./aptitude-tests";

@@ -6,6 +6,13 @@ const envSchema = z.object({
   AUTH_SECRET: z.string().min(16),
   TOKEN_SECRET: z.string().min(16),
   APP_BASE_URL: z.string().url().default("http://localhost:3000"),
+  // OpenRegister (Handelsregister) company import. Optional: without a key the
+  // register provider falls back to a demo-safe mock adapter (zero credits).
+  OPENREGISTER_API_KEY: z.string().optional(),
+  OPENREGISTER_BASE_URL: z
+    .string()
+    .url()
+    .default("https://api.openregister.de"),
 });
 
 // Fail fast at startup: a missing secret must never surface as a runtime 500.
@@ -15,6 +22,8 @@ export const env = envSchema.parse({
   AUTH_SECRET: process.env.AUTH_SECRET,
   TOKEN_SECRET: process.env.TOKEN_SECRET,
   APP_BASE_URL: process.env.APP_BASE_URL,
+  OPENREGISTER_API_KEY: process.env.OPENREGISTER_API_KEY,
+  OPENREGISTER_BASE_URL: process.env.OPENREGISTER_BASE_URL,
 });
 
 if (env.AUTH_SECRET === env.TOKEN_SECRET) {
