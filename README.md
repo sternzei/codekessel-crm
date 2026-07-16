@@ -1,7 +1,9 @@
 # QCG Application & Onboarding Web Application  
 ## Concept for AZAV-Certified Measures under the Qualification Opportunities Act
 
-> **Developer quickstart** — architecture in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+> **Developer quickstart** — architecture in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md);
+> OpenRegister lead import (discovery, dedup, provenance, `import_runs`) in
+> [docs/REGISTER-IMPORT.md](docs/REGISTER-IMPORT.md)
 >
 > ```bash
 > pnpm install

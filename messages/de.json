@@ -26,6 +26,7 @@
     "expired": "Dieser Link ist abgelaufen. Sie erhalten in Kürze einen neuen Link.",
     "used": "Diese Aufgabe wurde bereits erledigt. Vielen Dank!",
     "revoked": "Dieser Link wurde deaktiviert. Bitte wenden Sie sich an Ihre Ansprechperson.",
+    "taskClosed": "Diese Aufgabe ist bereits abgeschlossen. Vielen Dank!",
     "doneTitle": "Vielen Dank!",
     "doneBody": "Ihre Angaben wurden gespeichert. Sie erhalten automatisch die nächsten Schritte.",
     "placeholderNote": "Diese Aufgabenseite wird in einer späteren Phase umgesetzt.",
