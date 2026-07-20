@@ -43,10 +43,10 @@ export default async function TokenTaskPage({
   searchParams,
 }: {
   params: Promise<{ token: string }>;
-  searchParams: Promise<{ done?: string; saved?: string }>;
+  searchParams: Promise<{ done?: string; saved?: string; error?: string }>;
 }) {
   const { token } = await params;
-  const { done, saved } = await searchParams;
+  const { done, saved, error } = await searchParams;
   const t = await getTranslations("taskPage");
   const rawToken = decodeURIComponent(token);
 
@@ -102,6 +102,12 @@ export default async function TokenTaskPage({
   );
 
   const { ctx } = data;
+
+  // A submission that failed to process redirects here with ?error=1 while the
+  // token is still live, so we show a friendly retry message instead of a 500.
+  if (error === "1" && ctx.ok) {
+    return <Message title={t("errorTitle")} body={t("errorBody")} />;
+  }
 
   // A just-completed task redirects here with ?done=1 — the token is now
   // "used", which for the completing person is a success, not an error.

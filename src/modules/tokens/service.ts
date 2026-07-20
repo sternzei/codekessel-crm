@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { SignJWT, jwtVerify } from "jose";
 import { and, eq, isNull } from "drizzle-orm";
 import type { DbHandle } from "@/db/client";
-import { magicLinkTokens, tasks } from "@/db/schema";
+import { magicLinkTokens, reminderJobs, tasks } from "@/db/schema";
 import { env } from "@/lib/env";
 import { logActivity } from "@/modules/audit/log";
 import { isActiveTaskStatus } from "@/modules/tasks/status";
@@ -144,6 +144,45 @@ export async function loadTokenContext(
 }
 
 /**
+ * Supersede helper: revoke every still-live (unused, not-yet-revoked) token for
+ * a task so at most one credential is ever valid at a time. A token already
+ * burned (used_at set) or revoked is left untouched — including, when called
+ * right after a burn, the token that just won the race.
+ */
+export async function revokeUnusedTokensForTask(
+  tx: DbHandle,
+  taskId: string,
+): Promise<void> {
+  await tx
+    .update(magicLinkTokens)
+    .set({ revokedAt: new Date() })
+    .where(
+      and(
+        eq(magicLinkTokens.taskId, taskId),
+        isNull(magicLinkTokens.usedAt),
+        isNull(magicLinkTokens.revokedAt),
+      ),
+    );
+}
+
+/**
+ * Proactively cancel a task's still-scheduled reminder jobs, so a completed
+ * task stops nagging immediately instead of waiting for the next worker poll.
+ * Mirrors the cancel pattern in participants/actions-internal.ts.
+ */
+export async function cancelScheduledRemindersForTask(
+  tx: DbHandle,
+  taskId: string,
+): Promise<void> {
+  await tx
+    .update(reminderJobs)
+    .set({ status: "cancelled" })
+    .where(
+      and(eq(reminderJobs.taskId, taskId), eq(reminderJobs.status, "scheduled")),
+    );
+}
+
+/**
  * Single-use burn. F2: the update is atomic — only the transaction that flips
  * used_at from NULL "wins" (WHERE used_at IS NULL ... RETURNING). A concurrent
  * double-submit (the user double-taps the button) finds no row to burn and this
@@ -202,6 +241,12 @@ export async function completeTaskViaToken(
     event: "task_completed",
     meta: { taskType: ctx.task.type },
   });
+
+  // P2: once the task is done there must be no other live credential and no
+  // pending reminders. Revoke any sibling tokens (the just-burned one is
+  // excluded — it now has used_at) and cancel scheduled reminders.
+  await revokeUnusedTokensForTask(tx, ctx.task.id);
+  await cancelScheduledRemindersForTask(tx, ctx.task.id);
   return true;
 }
 
@@ -226,16 +271,7 @@ export async function getOrIssueMagicLinkForTask(
       : task.ownerEmployerId;
   if (!subjectId) return null;
 
-  await tx
-    .update(magicLinkTokens)
-    .set({ revokedAt: new Date() })
-    .where(
-      and(
-        eq(magicLinkTokens.taskId, task.id),
-        isNull(magicLinkTokens.usedAt),
-        isNull(magicLinkTokens.revokedAt),
-      ),
-    );
+  await revokeUnusedTokensForTask(tx, task.id);
 
   const link = await issueMagicLink(tx, {
     tenantId: task.tenantId,

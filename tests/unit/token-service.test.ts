@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import type { DbHandle } from "@/db/client";
-import { activityLog, magicLinkTokens, tasks } from "@/db/schema";
+import { activityLog, magicLinkTokens, reminderJobs, tasks } from "@/db/schema";
 import { env } from "@/lib/env";
 import { ACTIVE_TASK_STATUSES, isActiveTaskStatus } from "@/modules/tasks/status";
 import {
@@ -294,4 +294,40 @@ test("completeTaskViaToken closes the task exactly once when it wins", async () 
   const taskUpdates = won.updates.filter((u) => u.table === tasks);
   assert.equal(taskUpdates.length, 1);
   assert.equal(taskUpdates[0]?.set.status, "done");
+});
+
+// --- P2: burning revokes siblings + cancels reminders ----------------------
+
+test("completeTaskViaToken revokes sibling tokens and cancels reminders on a win", async () => {
+  const won = makeFakeTx({ burnReturning: [{ id: "tok-1" }] });
+  await completeTaskViaToken(won.tx, {
+    tokenRow: tokenRow() as never,
+    task: makeTask(),
+  });
+  const revokeSiblings = won.updates.find(
+    (u) => u.table === magicLinkTokens && "revokedAt" in u.set,
+  );
+  assert.ok(revokeSiblings, "sibling tokens are revoked after the burn");
+  const cancelReminders = won.updates.find(
+    (u) => u.table === reminderJobs && u.set.status === "cancelled",
+  );
+  assert.ok(cancelReminders, "scheduled reminders are cancelled after the burn");
+});
+
+test("completeTaskViaToken skips revoke + reminder cancel on a lost race", async () => {
+  const lost = makeFakeTx({ burnReturning: [] });
+  await completeTaskViaToken(lost.tx, {
+    tokenRow: tokenRow() as never,
+    task: makeTask(),
+  });
+  assert.equal(
+    lost.updates.some((u) => u.table === reminderJobs),
+    false,
+    "no reminder side effects when the burn loses",
+  );
+  assert.equal(
+    lost.updates.some((u) => u.table === magicLinkTokens && "revokedAt" in u.set),
+    false,
+    "no sibling revoke when the burn loses",
+  );
 });

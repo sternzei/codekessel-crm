@@ -23,21 +23,29 @@ export async function confirmSubmission(formData: FormData): Promise<void> {
   const signature = await verifyTokenSignature(token);
   if (!signature) redirect(`/t/${token}`);
 
-  const ok = await withTenant(signature.tenantId, async (tx) => {
-    const ctx = await loadTokenContext(tx, token);
-    if (!ctx.ok || ctx.tokenRow.scope !== "confirm_submission") return false;
-    if (ctx.task.subjectKind !== "application" || !ctx.task.subjectId) {
-      return false;
-    }
+  let ok = false;
+  try {
+    ok = await withTenant(signature.tenantId, async (tx) => {
+      const ctx = await loadTokenContext(tx, token);
+      if (!ctx.ok || ctx.tokenRow.scope !== "confirm_submission") return false;
+      if (ctx.task.subjectKind !== "application" || !ctx.task.subjectId) {
+        return false;
+      }
 
-    await changeApplicationStatus(tx, {
-      applicationId: ctx.task.subjectId,
-      to: "submitted",
-      actorKind: "employer",
+      await changeApplicationStatus(tx, {
+        applicationId: ctx.task.subjectId,
+        to: "submitted",
+        actorKind: "employer",
+      });
+
+      return completeTaskViaToken(tx, ctx);
     });
-
-    return completeTaskViaToken(tx, ctx);
-  });
+  } catch {
+    // The submission gate (readiness/transition) or a transient failure must
+    // not surface as a raw 500 to the external employer — send them back to a
+    // friendly retry screen instead.
+    redirect(`/t/${token}?error=1`);
+  }
 
   redirect(ok ? `/t/${token}?done=1` : `/t/${token}`);
 }

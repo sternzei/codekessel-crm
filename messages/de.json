@@ -29,6 +29,8 @@
     "taskClosed": "Diese Aufgabe ist bereits abgeschlossen. Vielen Dank!",
     "doneTitle": "Vielen Dank!",
     "doneBody": "Ihre Angaben wurden gespeichert. Sie erhalten automatisch die nächsten Schritte.",
+    "errorTitle": "Das hat nicht geklappt",
+    "errorBody": "Ihre Angaben konnten nicht verarbeitet werden. Bitte versuchen Sie es erneut oder wenden Sie sich an Ihre Ansprechperson.",
     "placeholderNote": "Diese Aufgabenseite wird in einer späteren Phase umgesetzt.",
     "availability": {
       "title": "Verfügbarkeit bestätigen",

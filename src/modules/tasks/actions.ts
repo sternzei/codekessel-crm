@@ -18,7 +18,8 @@ import {
 /**
  * Re-issues a magic link for an external task. Tokens are stored only as
  * hashes, so a "lost" link cannot be recovered — consultants mint a fresh
- * one instead (the old token stays valid until it expires or is used).
+ * one instead. Re-issuing supersedes any still-live token for the task
+ * (getOrIssueMagicLinkForTask) so only one credential is ever valid.
  */
 export async function issueLinkForTask(formData: FormData): Promise<void> {
   const session = await getSession();
@@ -28,21 +29,10 @@ export async function issueLinkForTask(formData: FormData): Promise<void> {
 
   const url = await withTenant(session.tenantId, async (tx) => {
     const [task] = await tx.select().from(tasks).where(eq(tasks.id, taskId));
-    if (!task || task.ownerKind === "internal_user") return null;
+    if (!task) return null;
 
-    const subjectId =
-      task.ownerKind === "participant"
-        ? task.ownerParticipantId
-        : task.ownerEmployerId;
-    if (!subjectId) return null;
-
-    const link = await issueMagicLink(tx, {
-      tenantId: session.tenantId,
-      taskId: task.id,
-      subjectKind: task.ownerKind,
-      subjectId,
-      scope: task.type,
-    });
+    const link = await getOrIssueMagicLinkForTask(tx, task);
+    if (!link) return null;
 
     await logActivity(tx, {
       tenantId: session.tenantId,
@@ -52,7 +42,7 @@ export async function issueLinkForTask(formData: FormData): Promise<void> {
       subjectId: task.id,
       event: "link_issued",
     });
-    return link.url;
+    return link;
   });
 
   redirect(url ? `/tasks?link=${encodeURIComponent(url)}` : "/tasks");

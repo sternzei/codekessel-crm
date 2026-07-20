@@ -4,11 +4,11 @@ import { eq } from "drizzle-orm";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { withTenant } from "@/db/client";
-import { employers, tasks } from "@/db/schema";
+import { employers } from "@/db/schema";
 import { logActivity } from "@/modules/audit/log";
 import {
+  completeTaskViaToken,
   loadTokenContext,
-  markTokenUsed,
   verifyTokenSignature,
 } from "@/modules/tokens/service";
 import { deriveEmployerStatus, recomputeEmployerStatus } from "./service";
@@ -118,13 +118,11 @@ export async function submitEmployerSetup(formData: FormData): Promise<void> {
       kind: "employer",
     });
 
-    // Complete → close the task and burn the token (single use fulfilled).
+    // Complete → burn the token and close the task via the shared path, so the
+    // employer wizard emits the same `task_completed` audit event (and gets the
+    // sibling-token revoke + reminder cancellation) as every other magic link.
     if (status === "confirmed") {
-      await tx
-        .update(tasks)
-        .set({ status: "done", completedAt: new Date() })
-        .where(eq(tasks.id, ctx.task.id));
-      await markTokenUsed(tx, ctx.tokenRow);
+      await completeTaskViaToken(tx, ctx);
     }
   });
 

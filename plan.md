@@ -253,7 +253,15 @@ Goal: turn the placeholder document layer into the real "customer fills the BA f
 ### Epic F — Hardening & operability backlog (next steps)
 > Prioritized follow-ups from this cycle. All items below are **not yet
 > implemented** unless stated.
-- **F.1 Magic-link P2/P3** (⬜): rate-limit/brute-force protection on `/t/*`,
+- **F.1 Magic-link P2** (✅): single-live-credential + clean completion.
+  `completeTaskViaToken` now revokes sibling unused tokens for the task and
+  cancels its scheduled `reminder_jobs` on burn (no waiting for the worker
+  poll); `issueLinkForTask` re-issues via `getOrIssueMagicLinkForTask` (shared
+  supersede helper `revokeUnusedTokensForTask`); employer-setup completion goes
+  through `completeTaskViaToken` for a consistent `task_completed` audit; and
+  `confirmSubmission` is wrapped in try/catch → `/t/{token}?error=1` friendly
+  screen instead of a raw 500. Tests extended in `tests/unit/token-service.test.ts`.
+- **F.1b Magic-link P3** (⬜): rate-limit/brute-force protection on `/t/*`,
   token rotation/expiry tuning, consultant-facing revocation UI, audit-surfacing
   of superseded tokens (see §0c "Deferred").
 - **F.2 Participant transition state-machine** (✅): `participant_status`
