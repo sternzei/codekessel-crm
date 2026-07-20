@@ -256,10 +256,17 @@ Goal: turn the placeholder document layer into the real "customer fills the BA f
 - **F.1 Magic-link P2/P3** (⬜): rate-limit/brute-force protection on `/t/*`,
   token rotation/expiry tuning, consultant-facing revocation UI, audit-surfacing
   of superseded tokens (see §0c "Deferred").
-- **F.2 Participant transition state-machine** (⬜): make the
-  `participant_status` transitions an explicit, table/typed state-machine (legal
-  transitions + guards in one place) rather than ad-hoc `changeParticipantStatus`
-  checks; would centralize the availability gate and drop-out rules.
+- **F.2 Participant transition state-machine** (✅): `participant_status`
+  transitions are now an explicit, typed state-machine
+  (`participants/status-machine.ts`: `ALLOWED_PARTICIPANT_TRANSITIONS`,
+  `isParticipantTransitionAllowed`, `ParticipantTransitionError`). The phase
+  chain is derived from `PIPELINE_STATUS_ORDER` (no duplicated ordering); the
+  early-funnel outcomes are mutually reachable so call-script quick actions stay
+  valid; `lost` is an escape hatch from every non-terminal status. Enforced
+  server-side in `changeParticipantStatus` on top of the availability gate.
+  Undo bypasses the map (direct column write); the BA approval → enrolled path
+  passes `skipTransitionGuard` (authoritative). Tests:
+  `tests/unit/participant-transitions.test.ts`.
 - **F.3 Regional OpenRegister discovery filters** (⬜): add state/region,
   legal-form, and industry filters to `searchDistressed()` (today only
   `status=active` + employee range + loss-maker; see `docs/REGISTER-IMPORT.md`

@@ -2,6 +2,10 @@ import { eq } from "drizzle-orm";
 import type { DbHandle } from "@/db/client";
 import { participants } from "@/db/schema";
 import { processTransition } from "@/modules/routing/engine";
+import {
+  isParticipantTransitionAllowed,
+  ParticipantTransitionError,
+} from "@/modules/participants/status-machine";
 
 export type ParticipantStatus =
   (typeof participants.status.enumValues)[number];
@@ -48,12 +52,21 @@ export type ChangeStatusParams = {
    * the approval when the answer was never explicitly stamped "yes".
    */
   skipAvailabilityGate?: boolean;
+  /**
+   * Bypass the allowed-transition state-machine. Only authoritative system
+   * transitions set this — e.g. BA approval → enrolled, where enrollment is a
+   * consequence of the granted application rather than a manual funnel move and
+   * the participant may not sit on the exact predecessor status. Undo does not
+   * use this path at all: it writes the column directly (see actions-internal).
+   */
+  skipTransitionGuard?: boolean;
 };
 
 /**
- * The only way participant status changes: gate check → update →
- * routing engine. Throws AvailabilityGateError when the 20h/6-month
- * gate blocks the transition.
+ * The only way participant status changes: transition guard → availability
+ * gate → update → routing engine. Throws ParticipantTransitionError on an
+ * illegal status change and AvailabilityGateError when the 20h/6-month gate
+ * blocks the transition.
  */
 export async function changeParticipantStatus(
   tx: DbHandle,
@@ -65,6 +78,13 @@ export async function changeParticipantStatus(
     .where(eq(participants.id, params.participantId));
   if (!participant) throw new Error("Participant not found");
   if (participant.status === params.to) return;
+
+  if (
+    !params.skipTransitionGuard &&
+    !isParticipantTransitionAllowed(participant.status, params.to)
+  ) {
+    throw new ParticipantTransitionError(participant.status, params.to);
+  }
 
   if (!params.skipAvailabilityGate) {
     assertAvailabilityGate(params.to, participant.availabilityStatus);

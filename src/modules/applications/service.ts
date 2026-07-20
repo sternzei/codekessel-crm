@@ -152,6 +152,9 @@ export async function changeApplicationStatus(
       // BA approval is the definitive availability confirmation; do not let
       // the gate roll back the enrollment.
       skipAvailabilityGate: true,
+      // Enrollment is an authoritative consequence of the granted application,
+      // not a manual funnel step, so it bypasses the forward transition map.
+      skipTransitionGuard: true,
     });
   }
 }

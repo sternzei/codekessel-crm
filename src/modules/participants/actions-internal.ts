@@ -29,6 +29,7 @@ import {
   changeParticipantStatus,
   recordAvailability,
 } from "@/modules/participants/transitions";
+import { ParticipantTransitionError } from "@/modules/participants/status-machine";
 
 // All internal (console) server actions. Every action re-checks the session —
 // the layout guard alone is not an authorization boundary.
@@ -180,6 +181,7 @@ export async function setLeadStatus(formData: FormData): Promise<void> {
   );
 
   let gateBlocked = false;
+  let transitionBlocked = false;
   await withTenant(session.tenantId, async (tx) => {
     try {
       await changeParticipantStatus(tx, {
@@ -192,6 +194,10 @@ export async function setLeadStatus(formData: FormData): Promise<void> {
         gateBlocked = true;
         return;
       }
+      if (error instanceof ParticipantTransitionError) {
+        transitionBlocked = true;
+        return;
+      }
       throw error;
     }
     if (note) {
@@ -202,6 +208,7 @@ export async function setLeadStatus(formData: FormData): Promise<void> {
   revalidatePath(leadPath(participantId));
   revalidatePath("/pipeline");
   if (gateBlocked) redirect(`${leadPath(participantId)}?gate=1`);
+  if (transitionBlocked) redirect(`${leadPath(participantId)}?transition=1`);
 }
 
 const availabilitySchema = z.enum(participants.availabilityStatus.enumValues);

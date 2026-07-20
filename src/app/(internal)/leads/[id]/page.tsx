@@ -33,13 +33,13 @@ export default async function LeadDetailPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ gate?: string; undo?: string }>;
+  searchParams: Promise<{ gate?: string; undo?: string; transition?: string }>;
 }) {
   const session = await getSession();
   if (!session) redirect("/auth/sign-in");
 
   const { id } = await params;
-  const { gate, undo } = await searchParams;
+  const { gate, undo, transition } = await searchParams;
   const tStatus = await getTranslations("status.participant");
 
   const data = await withTenant(session.tenantId, async (tx) => {
@@ -78,6 +78,14 @@ export default async function LeadDetailPage({
           Statuswechsel blockiert: Die Verfügbarkeit (20 Std./Woche über 6
           Monate) muss eindeutig mit „Ja“ bestätigt sein, bevor der Lead
           qualifiziert werden kann.
+        </p>
+      ) : null}
+
+      {transition === "1" ? (
+        <p className="gate-banner" style={{ marginBottom: "var(--space-6)" }}>
+          Statuswechsel blockiert: Dieser Schritt ist im Lead-Funnel nicht
+          zulässig. Bitte die Zwischenschritte einhalten oder den Lead als
+          „verloren“ markieren.
         </p>
       ) : null}
 
