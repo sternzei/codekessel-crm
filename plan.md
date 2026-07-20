@@ -275,11 +275,17 @@ Goal: turn the placeholder document layer into the real "customer fills the BA f
   Undo bypasses the map (direct column write); the BA approval → enrolled path
   passes `skipTransitionGuard` (authoritative). Tests:
   `tests/unit/participant-transitions.test.ts`.
-- **F.3 Regional OpenRegister discovery filters** (⬜): add state/region,
-  legal-form, and industry filters to `searchDistressed()` (today only
-  `status=active` + employee range + loss-maker; see `docs/REGISTER-IMPORT.md`
-  §1). Persist `financialsSource` and structured financial columns (provenance
-  gap, §3).
+- **F.3 Regional OpenRegister discovery filters** (✅ region + legal-form):
+  configurable federal-state (default Baden-Württemberg, `DEFAULT_FEDERAL_STATE`)
+  and legal-form filters added to `DistressedCriteria` and the import UI. Applied
+  CLIENT-SIDE after fetch (`register/filters.ts`) because OpenRegister exposes no
+  confirmed server-side filter field for them; region uses a configurable PLZ-
+  prefix → state map over the search row's optional `postal_code`. Batch import
+  now writes ONE `import_runs` row with real stats
+  `{discovered, inserted, updated, skipped, conflicted, failed}` (`tallyBatch`,
+  `importCompanies`). Tests: `register-filters.test.ts`, batch cases in
+  `import-run.test.ts`. Still open: industry filter; persisting `financialsSource`
+  + structured financial columns (provenance gap, §3).
 - **F.4 WhatsApp phases** (⬜): execute §0d — provision, Meta-approved templates,
   webhooks for receipts/inbound, link buttons. Adapter + consent already exist.
 - **F.5 E2E for this cycle** (⬜): extend the Playwright suite to cover the

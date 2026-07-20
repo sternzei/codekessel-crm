@@ -13,7 +13,10 @@ import {
   completeImportRun,
   recordFailedRun,
   startImportRun,
+  tallyBatch,
   tallyOutcome,
+  type BatchImportRunCriteria,
+  type BatchItemResult,
   type ImportOutcome,
   type ImportRunCriteria,
 } from "./import-run";
@@ -92,6 +95,101 @@ export async function importCompany(formData: FormData): Promise<void> {
   redirect(`/pipeline?import=${result.outcome}`);
 }
 
+/**
+ * Batch import: imports every company on the current discovery page in ONE
+ * import_runs row with the REAL aggregate stats
+ * {discovered, inserted, updated, skipped, conflicted, failed}. Each company is
+ * applied in its own tenant transaction stamped with the shared run id; a
+ * per-company failure is counted as `failed` and does NOT abort the batch, so
+ * the run still closes as `completed` with an honest failure count.
+ */
+export async function importCompanies(formData: FormData): Promise<void> {
+  const admin = await requireAdmin();
+
+  const companyIds = formData.getAll("companyId").map(String).filter(Boolean);
+  if (companyIds.length === 0) redirect("/leads/import?error=notfound");
+
+  const profits = formData.getAll("profitEur");
+  const fiscalYears = formData.getAll("fiscalYear");
+  const employeesList = formData.getAll("employees");
+  const items = companyIds.map((companyId, i) => ({
+    companyId,
+    profitEur: numOrNull(profits[i] ?? null),
+    fiscalYear: strOrNull(fiscalYears[i] ?? null),
+    employees: numOrNull(employeesList[i] ?? null),
+  }));
+
+  const batchCriteria: BatchImportRunCriteria = {
+    employeesMin: numOrNull(formData.get("employeesMin")) ?? 0,
+    employeesMax: numOrNull(formData.get("employeesMax")) ?? 0,
+    federalState: strOrNull(formData.get("federalState")) ?? "",
+    legalForms: formData.getAll("legalForms").map(String).filter(Boolean),
+    page: numOrNull(formData.get("page")) ?? 1,
+    discovered: items.length,
+  };
+
+  const stats = await runBatchImport(admin, items, batchCriteria);
+
+  revalidatePath("/pipeline");
+  redirect(`/pipeline?imported=${stats.inserted + stats.updated}`);
+}
+
+type BatchItem = {
+  companyId: string;
+  profitEur: number | null;
+  fiscalYear: string | null;
+  employees: number | null;
+};
+
+/**
+ * Opens one run, applies each company under the shared run id (own tx per
+ * company), then closes the run with the aggregated batch stats. Fetch/import
+ * errors and not-found companies are tallied as `failed` and never abort the
+ * batch.
+ */
+async function runBatchImport(
+  admin: { id: string; tenantId: string },
+  items: BatchItem[],
+  batchCriteria: BatchImportRunCriteria,
+): Promise<ReturnType<typeof tallyBatch>> {
+  const runId = await withTenant(admin.tenantId, (tx) =>
+    startImportRun(tx, {
+      tenantId: admin.tenantId,
+      source: REGISTER_SOURCE,
+      criteria: batchCriteria,
+      startedByUserId: admin.id,
+    }),
+  );
+
+  const results: BatchItemResult[] = [];
+  for (const item of items) {
+    const itemCriteria: ImportRunCriteria = {
+      companyId: item.companyId,
+      profitEur: item.profitEur,
+      fiscalYear: item.fiscalYear,
+      employees: item.employees,
+    };
+    try {
+      const company = await getRegisterProvider().getCompany(item.companyId);
+      if (!company) {
+        results.push("failed");
+        continue;
+      }
+      const outcome = await withTenant(admin.tenantId, (tx) =>
+        applyCompanyToRun(tx, admin, company, itemCriteria, runId),
+      );
+      results.push(outcome);
+    } catch {
+      // Honest failure accounting: one bad company must not sink the batch.
+      results.push("failed");
+    }
+  }
+
+  const stats = tallyBatch(results);
+  await withTenant(admin.tenantId, (tx) => completeImportRun(tx, runId, stats));
+  return stats;
+}
+
 type ImportResult =
   | { kind: "notfound" }
   | { kind: "done"; outcome: ImportOutcome };
@@ -167,11 +265,9 @@ function errorText(error: unknown): string {
 }
 
 /**
- * The DB work for a single company: opens the run, resolves the employer,
- * inserts or refreshes the one lead (stamping import_run_id on the
- * created/updated lead), and closes the run as `completed` with the real
- * outcome counter — all inside one tenant transaction so the run row and the
- * lead commit atomically.
+ * The DB work for a single company: opens the run, applies the company to it,
+ * and closes the run as `completed` with the real outcome counter — all inside
+ * one tenant transaction so the run row and the lead commit atomically.
  */
 async function importCompanyLead(
   tx: Tx,
@@ -180,6 +276,24 @@ async function importCompanyLead(
   criteria: ImportRunCriteria,
 ): Promise<ImportOutcome> {
   const runId = await startImportRun(tx, runArgs(admin, criteria));
+  const outcome = await applyCompanyToRun(tx, admin, company, criteria, runId);
+  await completeImportRun(tx, runId, tallyOutcome(outcome));
+  return outcome;
+}
+
+/**
+ * Resolves the employer and inserts/refreshes the one lead for a company,
+ * stamping the given `runId` on the created/updated lead. Shared by the
+ * single-company import (its own run) and the batch import (one run for the
+ * whole page). Does NOT open or close the run — the caller owns that.
+ */
+async function applyCompanyToRun(
+  tx: Tx,
+  admin: { id: string; tenantId: string },
+  company: RegisterCompanyDetail,
+  criteria: ImportRunCriteria,
+  runId: string,
+): Promise<ImportOutcome> {
   const employerId = await resolveEmployerId(
     tx,
     admin,
@@ -240,7 +354,6 @@ async function importCompanyLead(
         profitEur: criteria.profitEur,
       });
 
-  await completeImportRun(tx, runId, tallyOutcome(outcome));
   return outcome;
 }
 

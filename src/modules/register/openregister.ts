@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { applyDiscoveryFilters } from "./filters";
 import {
   RegisterCreditError,
   RegisterRequestError,
@@ -119,7 +120,14 @@ const searchResponseSchema = z.object({
           register_number: z.string().nullish(),
           register_type: z.string().nullish(),
           legal_form: z.string().nullish(),
-          address: z.object({ city: z.string().nullish() }).nullish(),
+          address: z
+            .object({
+              city: z.string().nullish(),
+              // Optional — used for client-side federal-state filtering. Read
+              // leniently; absent on rows that omit an address.
+              postal_code: z.string().nullish(),
+            })
+            .nullish(),
           indicators: z.array(indicatorSchema).nullish(),
           net_income: z.number().nullish(),
           revenue: z.number().nullish(),
@@ -394,12 +402,16 @@ export class OpenRegisterProvider implements RegisterProvider {
         registerNumber: r.register_number ?? null,
         registerType: r.register_type ?? null,
         city: r.address?.city ?? null,
+        postalCode: r.address?.postal_code ?? null,
         legalForm: r.legal_form ?? null,
         ...fin,
       };
     });
+    // Region + legal-form narrowing is not available server-side, so it is
+    // applied here over the fetched page (documented in register/filters.ts).
+    const filtered = applyDiscoveryFilters(companies, criteria);
     return {
-      companies,
+      companies: filtered,
       page: parsed.pagination?.page ?? criteria.page,
       totalPages: parsed.pagination?.total_pages ?? criteria.page,
       totalResults: parsed.pagination?.total_results ?? companies.length,

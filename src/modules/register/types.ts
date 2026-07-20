@@ -59,6 +59,12 @@ export type DistressedCriteria = {
   employeesMax: number;
   page: number;
   perPage: number;
+  // Optional discovery narrowing. OpenRegister exposes no confirmed server-side
+  // filter for federal state or legal form, so these are applied CLIENT-SIDE
+  // after the fetch (see register/filters.ts). An empty federalState ("") means
+  // "all regions"; an empty legalForms array means "all legal forms".
+  federalState?: string;
+  legalForms?: string[];
 };
 
 // Where a company's figures were read from — also records their original
@@ -72,6 +78,9 @@ export type RegisterDistressedCompany = {
   registerNumber: string | null;
   registerType: string | null;
   city: string | null;
+  // Best-effort from the search payload — used for client-side federal-state
+  // filtering (PLZ prefix). May be null when the search row omits an address.
+  postalCode: string | null;
   legalForm: string | null;
   // Best-effort from the search payload — may be absent even though the
   // server-side net_income<0 filter guarantees the company is loss-making.

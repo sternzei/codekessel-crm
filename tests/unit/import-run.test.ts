@@ -1,8 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  emptyBatchStats,
   emptyStats,
+  tallyBatch,
   tallyOutcome,
+  type BatchItemResult,
   type ImportOutcome,
 } from "@/modules/register/import-run";
 
@@ -40,6 +43,48 @@ test("a skipped import is NOT recorded as inserted", () => {
   const stats = tallyOutcome("skipped");
   assert.equal(stats.inserted, 0);
   assert.equal(stats.skipped, 1);
+});
+
+// --- Batch stats: one honest run row for a multi-company import -------------
+
+test("empty batch stats start at zero on every counter", () => {
+  assert.deepEqual(emptyBatchStats(), {
+    discovered: 0,
+    inserted: 0,
+    updated: 0,
+    skipped: 0,
+    conflicted: 0,
+    failed: 0,
+  });
+});
+
+test("tallyBatch counts each real outcome and never inflates inserted", () => {
+  const results: BatchItemResult[] = [
+    "inserted",
+    "inserted",
+    "updated",
+    "skipped",
+    "conflicted",
+    "failed",
+  ];
+  const stats = tallyBatch(results);
+  assert.deepEqual(stats, {
+    discovered: 6,
+    inserted: 2,
+    updated: 1,
+    skipped: 1,
+    conflicted: 1,
+    failed: 1,
+  });
+  // discovered accounts for every attempted company (including failures).
+  assert.equal(
+    stats.inserted + stats.updated + stats.skipped + stats.conflicted + stats.failed,
+    stats.discovered,
+  );
+});
+
+test("tallyBatch of an empty batch discovers nothing", () => {
+  assert.deepEqual(tallyBatch([]), emptyBatchStats());
 });
 
 test("tally accumulates onto a provided base without mutating it", () => {

@@ -28,6 +28,54 @@ export type ImportRunCriteria = {
   employees: number | null;
 };
 
+// Criteria for a multi-company batch run: the discovery filters that produced
+// the page plus the number of companies discovered/attempted.
+export type BatchImportRunCriteria = {
+  employeesMin: number;
+  employeesMax: number;
+  federalState: string;
+  legalForms: string[];
+  page: number;
+  discovered: number;
+};
+
+// Any criteria shape persisted on import_runs.criteria (jsonb).
+export type RunCriteria = ImportRunCriteria | BatchImportRunCriteria;
+
+// Batch stats: the per-company outcome tally plus the number of companies
+// discovered and the count that failed to import. discovered ===
+// inserted + updated + skipped + conflicted + failed for a fully-attempted batch.
+export type BatchImportStats = {
+  discovered: number;
+  inserted: number;
+  updated: number;
+  skipped: number;
+  conflicted: number;
+  failed: number;
+};
+
+// One company's real batch outcome: a normal import outcome, or a failure.
+export type BatchItemResult = ImportOutcome | "failed";
+
+/** A zeroed batch-stats object. */
+export function emptyBatchStats(): BatchImportStats {
+  return { discovered: 0, inserted: 0, updated: 0, skipped: 0, conflicted: 0, failed: 0 };
+}
+
+/**
+ * Tallies a batch of per-company results into ONE honest stats object (pure).
+ * `discovered` is the number of companies attempted, and every result bumps
+ * exactly its own counter — never a blanket "everything = inserted".
+ */
+export function tallyBatch(
+  results: readonly BatchItemResult[],
+): BatchImportStats {
+  const stats = emptyBatchStats();
+  stats.discovered = results.length;
+  for (const result of results) stats[result] += 1;
+  return stats;
+}
+
 /** A zeroed stats object — the honest baseline before any outcome is tallied. */
 export function emptyStats(): ImportRunStats {
   return { inserted: 0, updated: 0, skipped: 0, conflicted: 0 };
@@ -48,7 +96,7 @@ export function tallyOutcome(
 type StartImportRunArgs = {
   tenantId: string;
   source: string;
-  criteria: ImportRunCriteria;
+  criteria: RunCriteria;
   startedByUserId: string;
 };
 
@@ -74,7 +122,7 @@ export async function startImportRun(
 export async function completeImportRun(
   tx: DbHandle,
   runId: string,
-  stats: ImportRunStats,
+  stats: ImportRunStats | BatchImportStats,
 ): Promise<void> {
   await tx
     .update(importRuns)

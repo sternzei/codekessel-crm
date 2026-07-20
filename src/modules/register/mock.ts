@@ -1,3 +1,4 @@
+import { applyDiscoveryFilters } from "./filters";
 import type {
   DistressedCriteria,
   DistressedSearchResult,
@@ -65,6 +66,29 @@ const FIXTURES: RegisterCompanyDetail[] = [
       },
     ],
   },
+  {
+    companyId: "DE-HRB-DEMO-100003",
+    name: "Schwaben Reinigung GmbH",
+    legalForm: "gmbh",
+    registerNumber: "100003",
+    registerType: "HRB",
+    registerCourt: "Stuttgart",
+    status: "active",
+    incorporatedAt: "2012-05-20",
+    address: { street: "Königstraße 5", postalCode: "70173", city: "Stuttgart" },
+    industryCode: "81.21.0",
+    contact: { email: null, phone: null, website: null },
+    representatives: [
+      {
+        name: "Sabine Wagner",
+        firstName: "Sabine",
+        lastName: "Wagner",
+        role: "DIRECTOR",
+        city: "Stuttgart",
+        isManagingDirector: true,
+      },
+    ],
+  },
 ];
 
 export class MockRegisterProvider implements RegisterProvider {
@@ -80,18 +104,21 @@ export class MockRegisterProvider implements RegisterProvider {
       registerNumber: c.registerNumber,
       registerType: c.registerType,
       city: c.address.city,
+      postalCode: c.address.postalCode,
       legalForm: c.legalForm,
-      profitEur: i === 0 ? -84_000 : -21_500,
-      revenueEur: i === 0 ? 1_250_000 : 430_000,
+      profitEur: i === 0 ? -84_000 : i === 1 ? -21_500 : -45_000,
+      revenueEur: i === 0 ? 1_250_000 : i === 1 ? 430_000 : 780_000,
       fiscalYear: "2024",
-      employees: i === 0 ? 24 : 12,
+      employees: i === 0 ? 24 : i === 1 ? 12 : 18,
       financialsSource: "search_row" as const,
     }));
+    // Apply the same client-side region/legal-form narrowing as the live path.
+    const filtered = applyDiscoveryFilters(companies, criteria);
     return {
-      companies: criteria.page > 1 ? [] : companies,
+      companies: criteria.page > 1 ? [] : filtered,
       page: criteria.page,
       totalPages: 1,
-      totalResults: companies.length,
+      totalResults: filtered.length,
     };
   }
 

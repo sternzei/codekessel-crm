@@ -30,8 +30,20 @@ returns two fixture companies so the whole flow works locally.
   AZAV profile).
 - Pagination via `page` / `per_page` (UI uses `perPage = 25`).
 
-There are **no** regional/state, legal-form, industry, or dissolved-entity
-exclusion filters beyond `status=active` — those are not implemented in-app.
+**Client-side narrowing (region + legal form).** On top of the server-side
+filters, the discovery page supports an optional **federal state** (default
+`baden-wuerttemberg`, configurable via `DEFAULT_FEDERAL_STATE`) and **legal-form**
+selection. OpenRegister exposes no confirmed server-side filter field for either,
+and the search rows only reliably carry `address.city` (+ optional
+`postal_code`) and `legal_form` — so these are applied **client-side after the
+fetch**, over the returned page, in `src/modules/register/filters.ts`
+(`applyDiscoveryFilters`). Region matching maps the company's `postal_code` to a
+state via a configurable **PLZ-prefix table** (`FEDERAL_STATE_POSTAL_PREFIXES`,
+approximate at state borders); a company with no postal code is excluded when a
+specific state is selected. Because the narrowing happens after fetch, it filters
+the **current page only** — the reported `totalResults` still reflects the
+server-side filters. Industry and dissolved-entity exclusion filters are still
+**not** implemented.
 
 ### Detail — `getCompany()`
 
@@ -259,6 +271,19 @@ per-company action; helpers live in `src/modules/register/import-run.ts`):
   `error` string) via `recordFailedRun`. A failed import is **never** recorded
   as `completed`, and the counters always reflect the real DB result — never a
   blanket "everything = inserted".
+
+### 5.2 Batch import (`importCompanies`)
+
+The discovery page can import **every company on the current page in one go**
+(`importCompanies` in `src/modules/register/actions.ts`). It writes **exactly one**
+`import_runs` row for the whole batch, with the aggregate stats
+`{discovered, inserted, updated, skipped, conflicted, failed}` (`tallyBatch`,
+unit-tested in `tests/unit/import-run.test.ts`). Each company is applied under
+the shared run id in its **own** tenant transaction (`applyCompanyToRun`); a
+per-company fetch/import failure or not-found is counted as `failed` and does
+**not** abort the batch, so the run still closes as `completed` with an honest
+`failed` count. `criteria` records the discovery filters
+(`employeesMin/Max`, `federalState`, `legalForms`, `page`) plus `discovered`.
 
 ---
 
