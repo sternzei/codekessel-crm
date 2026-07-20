@@ -277,6 +277,15 @@ Goal: turn the placeholder document layer into the real "customer fills the BA f
 - **F.5 E2E for this cycle** (⬜): extend the Playwright suite to cover the
   register import outcomes, pipeline filters/CSV export, and the magic-link
   task-closed / double-submit paths (F1/F2/F5).
+- **F.6 Unified application readiness** (✅): merged `computeReadiness`
+  (structural) and `buildChecklist` (full) into ONE severity-tiered evaluator
+  `evaluateApplicationReadiness` (`documents/data.ts`) with `blocker`/`warning`
+  tiers. Blockers now cover the full submission package — participant data,
+  privacy consent, employer BA prerequisites (Betriebsnummer + confirmed AG-S),
+  a linked measure, AND all required signatures. Enforced server-side in
+  `changeApplicationStatus` for both `complete` AND `submitted`; the UI
+  checklist projects the same checks. Tests:
+  `tests/unit/application-readiness.test.ts` (+ existing `checklist.test.ts`).
 
 ---
 

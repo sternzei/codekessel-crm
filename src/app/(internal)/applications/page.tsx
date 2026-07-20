@@ -66,8 +66,7 @@ export default async function ApplicationsPage() {
     await Promise.all(
       prepApps.map(async (r) => {
         const { blockers } = await computeReadiness(tx, {
-          employerId: r.application.employerId,
-          measureId: r.application.measureId,
+          participantId: r.application.participantId,
         });
         if (blockers.length) blockerByApp.set(r.application.id, blockers.map((b) => b.label));
       }),

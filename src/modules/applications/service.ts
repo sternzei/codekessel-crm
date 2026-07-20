@@ -1,8 +1,12 @@
 import { eq } from "drizzle-orm";
 import type { DbHandle } from "@/db/client";
-import { applications, employers, participants } from "@/db/schema";
+import { applications, participants } from "@/db/schema";
 import { processTransition } from "@/modules/routing/engine";
 import { changeParticipantStatus } from "@/modules/participants/transitions";
+import {
+  collectApplicationData,
+  evaluateApplicationReadiness,
+} from "@/modules/documents/data";
 
 export type ApplicationStatus = (typeof applications.status.enumValues)[number];
 
@@ -35,12 +39,12 @@ export class ApplicationTransitionError extends Error {
   }
 }
 
-// Submission readiness gate (concept §10/§14): an application cannot be
-// marked complete until the structural BA requirements are met — a linked
-// employer with a Betriebsnummer, a confirmed AG-S status, and a linked
-// measure. Document/signature/availability completeness is surfaced by the
-// documents checklist (Phase 5); these are the hard blockers that would make
-// a real submission package impossible.
+// Submission readiness gate (concept §10/§14). The rule set is centralized in
+// evaluateApplicationReadiness (documents/data.ts) and shared verbatim with the
+// UI checklist, so the server gate and the on-screen list can never diverge.
+// Blockers now include the full submission package: participant data, privacy
+// consent, employer BA prerequisites (Betriebsnummer + confirmed AG-S), a
+// linked measure, AND all required signatures.
 export type ReadinessBlocker = {
   code: string;
   label: string;
@@ -48,36 +52,20 @@ export type ReadinessBlocker = {
 
 export async function computeReadiness(
   tx: DbHandle,
-  application: { employerId: string | null; measureId: string | null },
+  application: { participantId: string },
 ): Promise<{ ready: boolean; blockers: ReadinessBlocker[] }> {
-  const blockers: ReadinessBlocker[] = [];
-
-  if (!application.employerId) {
-    blockers.push({ code: "no_employer", label: "Kein Arbeitgeber verknüpft" });
-  } else {
-    const [employer] = await tx
-      .select()
-      .from(employers)
-      .where(eq(employers.id, application.employerId));
-    if (!employer?.betriebsnummer) {
-      blockers.push({
-        code: "betriebsnummer_missing",
-        label: "Betriebsnummer fehlt",
-      });
-    }
-    if (employer?.agsRegistered === false || employer?.agsRegistered === null) {
-      blockers.push({
-        code: "ags_unconfirmed",
-        label: "Arbeitgeberservice-Status nicht bestätigt",
-      });
-    }
+  const data = await collectApplicationData(tx, application.participantId);
+  if (!data) {
+    return {
+      ready: false,
+      blockers: [{ code: "no_participant", label: "Teilnehmer:in nicht gefunden" }],
+    };
   }
-
-  if (!application.measureId) {
-    blockers.push({ code: "no_measure", label: "Keine Maßnahme zugeordnet" });
-  }
-
-  return { ready: blockers.length === 0, blockers };
+  const { ready, blockers } = evaluateApplicationReadiness(data);
+  return {
+    ready,
+    blockers: blockers.map((b) => ({ code: b.code, label: b.label })),
+  };
 }
 
 export async function changeApplicationStatus(
@@ -100,9 +88,14 @@ export async function changeApplicationStatus(
     throw new ApplicationTransitionError(application.status, params.to);
   }
 
-  // Final-checklist gate: block "complete" until structural blockers clear.
-  if (params.to === "complete") {
-    const { ready, blockers } = await computeReadiness(tx, application);
+  // Final-checklist gate: block "complete" and "submitted" until every
+  // submission blocker clears (participant data, consent, employer BA
+  // prerequisites, measure, signatures). Re-checked at submit because the
+  // package can change after it was first completed.
+  if (params.to === "complete" || params.to === "submitted") {
+    const { ready, blockers } = await computeReadiness(tx, {
+      participantId: application.participantId,
+    });
     if (!ready) {
       throw new ApplicationNotReadyError(blockers.map((b) => b.label));
     }

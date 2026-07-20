@@ -120,7 +120,39 @@ export async function collectCompanyCohort(
 export type ChecklistState = "ok" | "warn" | "missing";
 export type ChecklistItem = { label: string; state: ChecklistState; hint?: string };
 
-export function buildChecklist(data: ApplicationData): ChecklistItem[] {
+// Severity of a readiness requirement:
+// - "blocker": must be satisfied before an application may be completed/submitted.
+// - "warning": surfaced to the consultant but does not block the transition.
+export type ReadinessSeverity = "blocker" | "warning";
+
+// One shared readiness requirement. `satisfied` drives the server-side gate
+// (blocker severity), while `state` is the richer tri-state used by the UI
+// checklist. Both are derived from the SAME predicate so the rule lives once.
+export type ReadinessCheck = {
+  code: string;
+  label: string;
+  severity: ReadinessSeverity;
+  satisfied: boolean;
+  state: ChecklistState;
+  hint?: string;
+};
+
+export type ApplicationReadiness = {
+  ready: boolean;
+  checks: ReadinessCheck[];
+  blockers: ReadinessCheck[];
+  warnings: ReadinessCheck[];
+};
+
+/**
+ * The single source of submission-readiness truth (concept §10/§14). Both the
+ * server transition to `complete`/`submitted` and the UI checklist consume this
+ * so an application can never be completed while required participant data,
+ * consents, employer BA prerequisites, a measure, or signatures are missing.
+ */
+export function evaluateApplicationReadiness(
+  data: ApplicationData,
+): ApplicationReadiness {
   const p = data.participant;
   const e = data.employer;
   const m = data.measure;
@@ -140,29 +172,44 @@ export function buildChecklist(data: ApplicationData): ChecklistItem[] {
     (c) => c.kind === "privacy_policy" && c.granted,
   );
 
-  return [
+  const checks: ReadinessCheck[] = [
     {
+      code: "participant_data",
       label: "Teilnehmerdaten vollständig",
+      severity: "blocker",
+      satisfied: participantComplete,
       state: participantComplete ? "ok" : "warn",
       hint: participantComplete
         ? undefined
         : "Geburtsdatum, Adresse oder Kontaktdaten fehlen",
     },
     {
+      code: "consent_privacy",
       label: "Einwilligungen (Datenschutz) vorhanden",
+      severity: "blocker",
+      satisfied: hasConsent,
       state: hasConsent ? "ok" : "missing",
     },
     {
+      code: "employer_data",
       label: "Arbeitgeberdaten vollständig",
+      severity: "warning",
+      satisfied: employerComplete,
       state: employerComplete ? "ok" : e ? "warn" : "missing",
       hint: e ? undefined : "Kein Arbeitgeber verknüpft",
     },
     {
+      code: "betriebsnummer_missing",
       label: "Betriebsnummer vorhanden",
+      severity: "blocker",
+      satisfied: Boolean(e?.betriebsnummer),
       state: e?.betriebsnummer ? "ok" : "missing",
     },
     {
+      code: "ags_unconfirmed",
       label: "Arbeitgeberservice-Status bestätigt",
+      severity: "blocker",
+      satisfied: e?.agsRegistered === true,
       state:
         e?.agsRegistered === true
           ? "ok"
@@ -172,24 +219,41 @@ export function buildChecklist(data: ApplicationData): ChecklistItem[] {
       hint: e?.agsRegistered === false ? "Registrierung noch erforderlich" : undefined,
     },
     {
+      code: "time_model",
       label: "Zeitmodell 20 Std./Woche bestätigt (Arbeitgeber)",
+      severity: "warning",
+      satisfied: e?.timeModelStatus === "yes",
       state: e?.timeModelStatus === "yes" ? "ok" : "missing",
     },
     {
+      code: "availability",
       label: "Verfügbarkeit bestätigt (Teilnehmer:in)",
+      severity: "warning",
+      satisfied: p.availabilityStatus === "yes",
       state: p.availabilityStatus === "yes" ? "ok" : "missing",
     },
     {
+      code: "no_measure",
       label: "Maßnahmedaten vollständig",
+      // A linked measure is the hard requirement; incomplete measure fields are
+      // only a caution (state "warn"), never a blocker.
+      severity: "blocker",
+      satisfied: Boolean(m),
       state: m && m.azavNumber && m.startDate && m.costEur ? "ok" : m ? "warn" : "missing",
       hint: m ? undefined : "Keine Maßnahme zugeordnet",
     },
     {
+      code: "documents",
       label: "Dokumente erstellt",
+      severity: "warning",
+      satisfied: generated.length >= 2,
       state: generated.length >= 2 ? "ok" : generated.length > 0 ? "warn" : "missing",
     },
     {
+      code: "signatures_incomplete",
       label: "Erforderliche Signaturen vollständig",
+      severity: "blocker",
+      satisfied: signaturesComplete,
       state: signaturesComplete
         ? "ok"
         : data.signatures.length > 0
@@ -197,4 +261,16 @@ export function buildChecklist(data: ApplicationData): ChecklistItem[] {
           : "missing",
     },
   ];
+
+  const blockers = checks.filter((c) => c.severity === "blocker" && !c.satisfied);
+  const warnings = checks.filter((c) => c.severity === "warning" && !c.satisfied);
+  return { ready: blockers.length === 0, checks, blockers, warnings };
+}
+
+export function buildChecklist(data: ApplicationData): ChecklistItem[] {
+  return evaluateApplicationReadiness(data).checks.map(({ label, state, hint }) => ({
+    label,
+    state,
+    hint,
+  }));
 }
