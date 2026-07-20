@@ -15,8 +15,10 @@ import {
   getImportFreshness,
   getPipelineAlerts,
   listConsultants,
+  listImportRuns,
   listPipelinePage,
   listSources,
+  type ImportRunSummary,
 } from "@/modules/participants/pipeline";
 import {
   buildFunnel,
@@ -143,17 +145,35 @@ export default async function PipelinePage({
   staleCutoff.setHours(23, 59, 59, 999);
 
   const data = await withTenant(session.tenantId, async (tx) => {
-    const [counts, coverage, listPage, alerts, freshness, consultants, sources] =
-      await Promise.all([
-        aggregateByStatus(tx, filter),
-        aggregateCoverage(tx, filter),
-        listPipelinePage(tx, listParams),
-        getPipelineAlerts(tx, staleCutoff),
-        getImportFreshness(tx),
-        listConsultants(tx),
-        listSources(tx),
-      ]);
-    return { counts, coverage, listPage, alerts, freshness, consultants, sources };
+    const [
+      counts,
+      coverage,
+      listPage,
+      alerts,
+      freshness,
+      importRuns,
+      consultants,
+      sources,
+    ] = await Promise.all([
+      aggregateByStatus(tx, filter),
+      aggregateCoverage(tx, filter),
+      listPipelinePage(tx, listParams),
+      getPipelineAlerts(tx, staleCutoff),
+      getImportFreshness(tx),
+      listImportRuns(tx),
+      listConsultants(tx),
+      listSources(tx),
+    ]);
+    return {
+      counts,
+      coverage,
+      listPage,
+      alerts,
+      freshness,
+      importRuns,
+      consultants,
+      sources,
+    };
   });
 
   const kpis = deriveKpis(data.counts, data.coverage);
@@ -302,6 +322,8 @@ export default async function PipelinePage({
           </Link>
         ) : null}
       </div>
+
+      <ImportRunHistory runs={data.importRuns} fmt={dateTimeFmt} />
 
       <section className="section" aria-label="Kennzahlen" style={{ marginTop: "var(--space-6)" }}>
         <h2>Operative Kennzahlen · {dateRangeLabel}</h2>
@@ -515,5 +537,75 @@ function Kpi({
       <div className="kpi-label">{label}</div>
       {hint ? <div className="kpi-hint">{hint}</div> : null}
     </div>
+  );
+}
+
+const RUN_STATUS_META: Record<string, { label: string; tone: BadgeTone }> = {
+  running: { label: "läuft", tone: "warn" },
+  completed: { label: "abgeschlossen", tone: "ok" },
+  failed: { label: "fehlgeschlagen", tone: "danger" },
+};
+
+// Only the honest counters, in a stable order, are surfaced — whatever the run
+// actually recorded (single-company runs omit discovered/failed).
+const RUN_STAT_LABELS: Array<[string, string]> = [
+  ["discovered", "entdeckt"],
+  ["inserted", "neu"],
+  ["updated", "aktualisiert"],
+  ["skipped", "übersprungen"],
+  ["conflicted", "Konflikt"],
+  ["failed", "fehlgeschlagen"],
+];
+
+function formatRunStats(stats: Record<string, unknown> | null): string {
+  if (!stats) return "—";
+  const parts = RUN_STAT_LABELS.filter(
+    ([key]) => typeof stats[key] === "number",
+  ).map(([key, label]) => `${label}: ${stats[key] as number}`);
+  return parts.length > 0 ? parts.join(" · ") : "—";
+}
+
+function ImportRunHistory({
+  runs,
+  fmt,
+}: {
+  runs: ImportRunSummary[];
+  fmt: Intl.DateTimeFormat;
+}) {
+  if (runs.length === 0) return null;
+  return (
+    <section
+      className="section"
+      aria-label="Import- & Anreicherungsläufe"
+      style={{ marginTop: "var(--space-4)" }}
+      data-testid="import-run-history"
+    >
+      <h2>Import- &amp; Anreicherungsläufe</h2>
+      <ul className="timeline" style={{ margin: 0, padding: 0 }}>
+        {runs.map((run) => {
+          const meta = RUN_STATUS_META[run.status] ?? {
+            label: run.status,
+            tone: "neutral" as BadgeTone,
+          };
+          const badgeClass =
+            meta.tone === "neutral" ? "badge" : `badge badge--${meta.tone}`;
+          return (
+            <li key={run.id} style={{ marginBottom: "var(--space-2)" }}>
+              <span className={badgeClass}>{meta.label}</span>{" "}
+              <strong>{run.source}</strong>
+              <span className="meta"> · {run.startedByName ?? "System"}</span>
+              <div className="meta">
+                {fmt.format(run.startedAt)}
+                {run.finishedAt ? ` → ${fmt.format(run.finishedAt)}` : ""}
+              </div>
+              <div className="meta">{formatRunStats(run.stats)}</div>
+              {run.status === "failed" && run.error ? (
+                <div className="meta pipeline-strip-fail">Fehler: {run.error}</div>
+              ) : null}
+            </li>
+          );
+        })}
+      </ul>
+    </section>
   );
 }

@@ -142,6 +142,52 @@ export async function getImportFreshness(
   };
 }
 
+export interface ImportRunSummary {
+  id: string;
+  source: string;
+  status: string;
+  criteria: Record<string, unknown> | null;
+  stats: Record<string, unknown> | null;
+  startedAt: Date;
+  finishedAt: Date | null;
+  error: string | null;
+  startedByName: string | null;
+}
+
+const IMPORT_RUN_HISTORY_LIMIT = 10;
+
+/**
+ * Recent import & enrichment runs for the pipeline run-history panel. Honest
+ * states: `running`/`completed`/`failed` are returned exactly as stored (a
+ * failed run stays failed), with the real stats + a capped error string.
+ */
+export async function listImportRuns(
+  tx: DbHandle,
+  limit: number = IMPORT_RUN_HISTORY_LIMIT,
+): Promise<ImportRunSummary[]> {
+  const rows = await tx
+    .select({
+      id: importRuns.id,
+      source: importRuns.source,
+      status: importRuns.status,
+      criteria: importRuns.criteria,
+      stats: importRuns.stats,
+      startedAt: importRuns.startedAt,
+      finishedAt: importRuns.finishedAt,
+      error: importRuns.error,
+      startedByName: users.name,
+    })
+    .from(importRuns)
+    .leftJoin(users, eq(importRuns.startedByUserId, users.id))
+    .orderBy(desc(importRuns.startedAt))
+    .limit(limit);
+  return rows.map((row) => ({
+    ...row,
+    criteria: (row.criteria as Record<string, unknown> | null) ?? null,
+    stats: (row.stats as Record<string, unknown> | null) ?? null,
+  }));
+}
+
 export interface PipelineRow {
   id: string;
   firstName: string;

@@ -288,9 +288,17 @@ Goal: turn the placeholder document layer into the real "customer fills the BA f
   + structured financial columns (provenance gap, §3).
 - **F.4 WhatsApp phases** (⬜): execute §0d — provision, Meta-approved templates,
   webhooks for receipts/inbound, link buttons. Adapter + consent already exist.
-- **F.5 E2E for this cycle** (⬜): extend the Playwright suite to cover the
-  register import outcomes, pipeline filters/CSV export, and the magic-link
-  task-closed / double-submit paths (F1/F2/F5).
+- **F.5 Import run-history + E2E for this cycle** (✅): the pipeline page now
+  renders an import & enrichment run-history panel (`listImportRuns` in
+  `participants/pipeline.ts` → `ImportRunHistory`) with honest states
+  (`running`/`abgeschlossen`/`fehlgeschlagen`), started-by, timestamps, real
+  stats, and a capped error summary for failed runs. Playwright coverage added
+  in `e2e/phase8-run-history.spec.ts`: pipeline filter URL-persistence (survives
+  reload), register import happy path → the completed `openregister` run appears
+  in the history panel, and the single-use magic-link "already completed" +
+  invalid/expired token states. E2E execution needs a running dev server + seeded
+  DB; specs are authored against real selectors but were NOT executed in this
+  environment (no server/DB) — unit/tsc/lint are green.
 - **F.6 Unified application readiness** (✅): merged `computeReadiness`
   (structural) and `buildChecklist` (full) into ONE severity-tiered evaluator
   `evaluateApplicationReadiness` (`documents/data.ts`) with `blocker`/`warning`
