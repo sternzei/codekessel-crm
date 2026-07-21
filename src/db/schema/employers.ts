@@ -1,11 +1,13 @@
 import {
   boolean,
   integer,
+  jsonb,
   pgTable,
   text,
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
+import type { SalaryComponent, StaffingBand } from "./ba-data";
 import { availabilityStatus, employerStatus } from "./enums";
 import { createdAt, tenantId, updatedAt } from "./helpers";
 
@@ -45,6 +47,22 @@ export const employers = pgTable(
     timeModelStatus: availabilityStatus("time_model_status")
       .notNull()
       .default("unclear"),
+
+    // --- Epic A: missing BA application data (plan.md §186). All nullable and
+    // additive; inherit the employers RLS policy (same table). Structured sets
+    // use jsonb (see ./ba-data).
+    // Legal form (Rechtsform), e.g. "GmbH", "GbR".
+    legalForm: text("legal_form"),
+    // Business account bank details (Betrieb).
+    iban: text("iban"),
+    bic: text("bic"),
+    // Head-count by working-hours band (Beschäftigtenzahlen nach Stunden-Faktoren).
+    staffingByHoursBand: jsonb("staffing_by_hours_band").$type<StaffingBand[]>(),
+    // Salary components relevant to the application.
+    salaryComponents: jsonb("salary_components").$type<SalaryComponent[]>(),
+    // A works agreement or collective agreement on training exists
+    // (Betriebsvereinbarung/Tarifvertrag).
+    hasBetriebsvereinbarung: boolean("has_betriebsvereinbarung"),
 
     // Provenance — how this employer entered the system. "manual" (default,
     // null) or "openregister". The register_* fields hold the Handelsregister

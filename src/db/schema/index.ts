@@ -1,4 +1,5 @@
 export * from "./enums";
+export * from "./ba-data";
 export * from "./tenants";
 export * from "./users";
 export * from "./measures";

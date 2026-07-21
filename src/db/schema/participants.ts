@@ -2,6 +2,8 @@ import { sql } from "drizzle-orm";
 import {
   date,
   index,
+  jsonb,
+  numeric,
   pgTable,
   text,
   uniqueIndex,
@@ -12,6 +14,12 @@ import {
   employmentStatus,
   participantStatus,
 } from "./enums";
+import type {
+  FundingStatus,
+  QualificationEntry,
+  SalaryComponent,
+  WeeklyTimes,
+} from "./ba-data";
 import { createdAt, tenantId, updatedAt } from "./helpers";
 import { employers } from "./employers";
 import { importRuns } from "./import-runs";
@@ -58,6 +66,43 @@ export const participants = pgTable(
     assignedConsultantId: uuid("assigned_consultant_id").references(
       () => users.id,
     ),
+
+    // --- Epic A: missing BA application data (plan.md §186). All nullable and
+    // additive; the columns inherit the participants RLS policy (same table),
+    // so no new policy is needed. Structured sets use jsonb (see ./ba-data).
+    // Sozialversicherungsnummer.
+    svNumber: text("sv_number"),
+    // Personal bank details (Person).
+    iban: text("iban"),
+    bic: text("bic"),
+    // Monthly gross salary (Gehalt) + any named components on top of it.
+    monthlyGrossSalary: numeric("monthly_gross_salary", {
+      precision: 10,
+      scale: 2,
+    }),
+    salaryComponents: jsonb("salary_components").$type<SalaryComponent[]>(),
+    // Working-time frame (Arbeitszeitrahmen).
+    weeklyWorkingHours: numeric("weekly_working_hours", {
+      precision: 5,
+      scale: 2,
+    }),
+    monthlyWorkingHours: numeric("monthly_working_hours", {
+      precision: 6,
+      scale: 2,
+    }),
+    // Per-weekday training times (Schulungszeiten, Uhrzeiten je Wochentag).
+    schulungszeiten: jsonb("schulungszeiten").$type<WeeklyTimes>(),
+    // Release hours the employer grants for the training (Freistellungsstunden).
+    freistellungsstunden: numeric("freistellungsstunden", {
+      precision: 6,
+      scale: 2,
+    }),
+    // Qualification history (Berufsabschluss-Historie).
+    qualificationHistory: jsonb("qualification_history").$type<
+      QualificationEntry[]
+    >(),
+    // Funding/subsidy status (KuG/EGZ-Status).
+    fundingStatus: jsonb("funding_status").$type<FundingStatus>(),
 
     createdAt: createdAt(),
     updatedAt: updatedAt(),
