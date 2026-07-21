@@ -177,11 +177,11 @@ forms** the eService actually needs. Builder status in
 | Trägerbescheinigung (ba042369) | single step 3 / company step 3 | `buildTraegerbescheinigungValues` | ✅ done (15 fields, verified vs `AZAV/Page3.pdf`) |
 | Sammelantrag-Teilnehmerliste (BA I FW 501/502) | company step 4 | `buildTeilnehmerlisteValues` | ✅ done (Kopf + rows; SV-Nummern jetzt aus zentralen Daten, Epic A) |
 | Arbeitnehmererklärung (ba042354) | single upload | `buildArbeitnehmererklaerungValues` | ✅ done (11/16 mapped; GdB/ungelernte Tätigkeit/Bedarfsgemeinschaft bleiben leer, da nicht erfasst) |
-| Vollmacht (ba051211) | participant sign | — | ⬜ mapping open (42 fields) |
+| Vollmacht (ba051211) | participant sign | `buildVollmachtValues` | ✅ done (Anlage + Vollmacht; Radios nur bei belegten Daten, sonst leer; Kundennr./Arbeitserlaubnis/GdB/Geburtsort/Familienstand nicht erfasst) |
 | Teilnehmer-Fragebogen (ba046157) | supplemental | — | ⬜ mapping open (190 fields) |
 | Schlusserklärung (ba042364) | after measure end | — | ⬜ entfällt bei eService-Antrag (112 fields) |
 
-**Headline: 3 of 6 upload forms are wired; 3 remain (2 mapped this cycle).**
+**Headline: 4 of 6 upload forms are wired; 2 remain (Fragebogen next).**
 
 Still-missing data (plan.md §186) is now **captured by Epic A** — nullable
 columns on `participants` (SV-Nummer, IBAN/BIC, Gehalt + Komponenten, Wochen-/

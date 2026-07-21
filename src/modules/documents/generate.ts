@@ -7,6 +7,7 @@ import {
   buildArbeitnehmererklaerungValues,
   buildTeilnehmerlisteValues,
   buildTraegerbescheinigungValues,
+  buildVollmachtValues,
   fillBaForm,
   type CohortParticipant,
 } from "./ba-forms";
@@ -184,6 +185,20 @@ export async function generateArbeitnehmererklaerung(
   const bytes = await fillBaForm(
     BA_TEMPLATES.arbeitnehmererklaerung,
     buildArbeitnehmererklaerungValues(data),
+  );
+  return persist(bytes);
+}
+
+/**
+ * Vollmacht (ba051211) — power of attorney, participant-signed. Editable
+ * AcroForm autofilled from central data; the participant signs the drawn field.
+ */
+export async function generateVollmacht(
+  data: ApplicationData,
+): Promise<GeneratedFile> {
+  const bytes = await fillBaForm(
+    BA_TEMPLATES.vollmacht,
+    buildVollmachtValues(data),
   );
   return persist(bytes);
 }

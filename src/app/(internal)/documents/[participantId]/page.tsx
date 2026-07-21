@@ -115,6 +115,7 @@ export default async function DocumentChecklistPage({
               {(
                 [
                   ["arbeitnehmererklaerung", "Arbeitnehmererklärung (BA-Formular)"],
+                  ["vollmacht", "Vollmacht (BA-Formular)"],
                 ] as const
               ).map(([type, label]) => (
                 <form key={type} action={generateDocument}>

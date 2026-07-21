@@ -19,11 +19,10 @@ const TEMPLATE_DIR = path.join(process.cwd(), "templates", "pdf");
 export const BA_TEMPLATES = {
   traegerbescheinigung: "traegerbescheinigung_ba042369.pdf",
   teilnehmerliste: "sammelantrag-teilnehmerliste_ba501-502.pdf",
-  // Present in templates/pdf but not yet auto-filled (participant-side forms;
-  // mappings can be added the same way once the missing data is captured):
   vollmacht: "vollmacht_ba051211.pdf",
   arbeitnehmererklaerung: "arbeitnehmererklaerung_ba042354.pdf",
   fragebogen: "fragebogen_ba046157.pdf",
+  // Present in templates/pdf but not yet auto-filled (entfällt bei eService):
   schlusserklaerung: "schlusserklaerung_ba042364.pdf",
 } as const;
 
@@ -58,6 +57,27 @@ function splitStreet(raw: string | null | undefined): {
 /** First captured qualification entry, if any (Berufsabschluss-Historie). */
 function firstQualification(data: ApplicationData) {
   return data.participant.qualificationHistory?.[0] ?? null;
+}
+
+/** Splits "Anna Müller" into first + last on the LAST space. */
+function splitName(full: string | null | undefined): {
+  first: string;
+  last: string;
+} {
+  const value = (full ?? "").trim();
+  if (!value) return { first: "", last: "" };
+  const idx = value.lastIndexOf(" ");
+  return idx === -1
+    ? { first: value, last: "" }
+    : { first: value.slice(0, idx), last: value.slice(idx + 1) };
+}
+
+/** Total head-count across the employer's working-hours bands, or null. */
+function totalStaffing(
+  bands: { band: string; count: number }[] | null | undefined,
+): number | null {
+  if (!bands || bands.length === 0) return null;
+  return bands.reduce((sum, b) => sum + b.count, 0);
 }
 
 /**
@@ -239,6 +259,88 @@ export function buildArbeitnehmererklaerungValues(
     values.txtf_Berufsabschluss_Berufsbezeichnung = qual.beruf;
     values.txtf_Zeugnisdatum = fmtDate(qual.abschlussdatum);
   }
+
+  return values;
+}
+
+// ---------------------------------------------------------------------------
+// Vollmacht (ba051211) — power of attorney, participant-signed. 42 fields;
+// verified against templates/pdf/vollmacht_ba051211.pdf. Two blocks: an
+// "Anlage" (Anl*) about the person's situation + the employer (Betrieb), and
+// the "Vollmacht" (VM*) itself where the person authorises the Betrieb.
+// Radios are only selected when Epic A data supports the answer — an unknown
+// answer is left blank rather than invented. Not-captured fields (Kundennummer,
+// Arbeitserlaubnis, GdB, Tätigkeit im erlernten Beruf, Geburtsort,
+// Familienstand, Verzichts-Checkboxen, Befristung) stay blank by design.
+// ---------------------------------------------------------------------------
+
+export function buildVollmachtValues(
+  data: ApplicationData,
+  today: Date = new Date(),
+): BaFormValues {
+  const p = data.participant;
+  const e = data.employer;
+  const qual = firstQualification(data);
+  const funding = p.fundingStatus;
+  const person = splitStreet(p.street);
+  const betrieb = splitStreet(e?.street);
+  const contact = splitName(e?.contactName);
+  const svPflichtig = e?.employeeCount ?? totalStaffing(e?.staffingByHoursBand);
+
+  const values: BaFormValues = {
+    // --- Anlage: person + Betrieb situation
+    txtfAnlSVNr: p.svNumber ?? "",
+    txtfAnlBetriebVorname: contact.first,
+    txtfAnlBetriebNachname: contact.last,
+    txtfAnlBetriebEmail: e?.contactEmail ?? "",
+    txtfAnlBetriebTel: e?.contactPhone ?? "",
+    numfAnlBetriebSVPflichtig: svPflichtig != null ? String(svPflichtig) : "",
+    txtfAnlOrtUnterschrift: p.city ?? "",
+    dateAnlUnterschrift: fmtDate(today.toISOString()),
+    // --- Vollmacht: person
+    txtfVMPersonVorname: p.firstName,
+    txtfVMPersonNachname: p.lastName,
+    dateVMPersonGebDatum: fmtDate(p.dateOfBirth),
+    txtfVMPersonStr: person.street,
+    txtfVMPersonHausNr: person.houseNo,
+    txtfVMPersonPlz: p.postalCode ?? "",
+    txtfVMPersonOrt: p.city ?? "",
+    // --- Vollmacht: authorised Betrieb (employer)
+    txtfVMBetriebName: e?.companyName ?? "",
+    txtfVMBetriebRechtsform: e?.legalForm ?? "",
+    txtfVMBetriebStr: betrieb.street,
+    txtfVMBetriebHausNr: betrieb.houseNo,
+    txtfVMBetriebPlz: e?.postalCode ?? "",
+    txtfVMBetriebOrt: e?.city ?? "",
+    // Unbefristet by default (the common case for these mandates).
+    rbtnVMPersonVollmacht: { option: "die Vollmacht ist unbefristet" },
+    txtfVMOrtUnterschrift: p.city ?? "",
+    dateVMUnterschrift: fmtDate(today.toISOString()),
+  };
+
+  // SV-pflichtiges Arbeitsverhältnis: only when employment status is known.
+  if (p.employmentStatus === "employed") {
+    values.rbtnAnlPersonArbeitsverh = { option: "ja" };
+  } else if (p.employmentStatus === "unemployed") {
+    values.rbtnAnlPersonArbeitsverh = { option: "nein - weiter mit 25" };
+  }
+
+  // Person takes part in the further training → yes when a measure is linked.
+  // NB: this option carries a trailing space in the template ("ja ").
+  if (data.measure) {
+    values.rbtnAnlPersonWeiterbildung = { option: "ja " };
+  }
+
+  if (qual) {
+    values.rbtnAnlPersonBerufsabschluss = { option: "ja" };
+    values.txtfAnlPersonBerufsbild = qual.beruf;
+    values.dateAnlPersonBerufsabschluss = fmtDate(qual.abschlussdatum);
+  }
+
+  // Employer-side subsidies: affirm only, never invent a "nein".
+  if (funding?.kug === true) values.rbtnAnlBetriebKug = { option: "ja" };
+  if (funding?.egz === true || Boolean(funding?.other))
+    values.rbtnAnlBetriebZuschuss = { option: "ja" };
 
   return values;
 }

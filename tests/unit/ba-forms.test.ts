@@ -4,6 +4,7 @@ import {
   buildArbeitnehmererklaerungValues,
   buildTeilnehmerlisteValues,
   buildTraegerbescheinigungValues,
+  buildVollmachtValues,
   TEILNEHMERLISTE_MAX_ROWS,
 } from "@/modules/documents/ba-forms";
 import type { ApplicationData } from "@/modules/documents/data";
@@ -170,6 +171,95 @@ test("Arbeitnehmererklärung: no qualification → 'nein', fields left blank", (
   });
   assert.equal(values.txtf_Berufsabschluss_Berufsbezeichnung, undefined);
   assert.equal(values.txtf_Zeugnisdatum, undefined);
+});
+
+// --- Vollmacht (ba051211) --------------------------------------------------
+
+function vollmachtData(): ApplicationData {
+  return {
+    participant: {
+      firstName: "Lena",
+      lastName: "Hoffmann",
+      dateOfBirth: "1990-01-01",
+      street: "Ahornweg 12a",
+      postalCode: "71034",
+      city: "Böblingen",
+      employmentStatus: "employed",
+      svNumber: "15070649C103",
+      qualificationHistory: [
+        { beruf: "Kauffrau", abschlussdatum: "2015-06-30" },
+      ],
+      fundingStatus: { kug: true },
+    },
+    employer: {
+      companyName: "Muster GmbH",
+      legalForm: "GmbH",
+      street: "Lauchstraße 1",
+      postalCode: "71032",
+      city: "Böblingen",
+      contactName: "Anna Müller",
+      contactEmail: "anna@muster.de",
+      contactPhone: "07031 1234",
+      employeeCount: 42,
+    },
+    measure: {
+      name: "Citizen AI Automation Engineer",
+      durationWeeks: 26,
+      weeklyHours: 20,
+      startDate: "2026-09-14",
+    },
+    documents: [],
+    signatures: [],
+    consents: [],
+    application: null,
+  } as unknown as ApplicationData;
+}
+
+test("Vollmacht: maps person, employer/Betrieb and Epic A data", () => {
+  const values = buildVollmachtValues(
+    vollmachtData(),
+    new Date("2026-07-21T12:00:00Z"),
+  );
+  assert.equal(values.txtfAnlSVNr, "15070649C103");
+  assert.equal(values.txtfAnlBetriebVorname, "Anna");
+  assert.equal(values.txtfAnlBetriebNachname, "Müller");
+  assert.equal(values.numfAnlBetriebSVPflichtig, "42");
+  assert.equal(values.txtfVMPersonVorname, "Lena");
+  assert.equal(values.dateVMPersonGebDatum, "01.01.1990");
+  assert.equal(values.txtfVMPersonStr, "Ahornweg");
+  assert.equal(values.txtfVMPersonHausNr, "12a");
+  assert.equal(values.txtfVMBetriebName, "Muster GmbH");
+  assert.equal(values.txtfVMBetriebRechtsform, "GmbH");
+  assert.equal(values.txtfVMBetriebStr, "Lauchstraße");
+  assert.equal(values.txtfVMBetriebHausNr, "1");
+  assert.equal(values.dateAnlUnterschrift, "21.07.2026");
+  assert.deepEqual(values.rbtnVMPersonVollmacht, {
+    option: "die Vollmacht ist unbefristet",
+  });
+  assert.deepEqual(values.rbtnAnlPersonArbeitsverh, { option: "ja" });
+  assert.deepEqual(values.rbtnAnlPersonWeiterbildung, { option: "ja " });
+  assert.deepEqual(values.rbtnAnlPersonBerufsabschluss, { option: "ja" });
+  assert.equal(values.txtfAnlPersonBerufsbild, "Kauffrau");
+  assert.deepEqual(values.rbtnAnlBetriebKug, { option: "ja" });
+});
+
+test("Vollmacht: unknown answers stay blank (no invented radios)", () => {
+  const base = vollmachtData();
+  const values = buildVollmachtValues({
+    ...base,
+    participant: {
+      ...base.participant,
+      employmentStatus: null,
+      qualificationHistory: null,
+      fundingStatus: null,
+    },
+    measure: null,
+  } as unknown as ApplicationData);
+  assert.equal(values.rbtnAnlPersonArbeitsverh, undefined);
+  assert.equal(values.rbtnAnlPersonWeiterbildung, undefined);
+  assert.equal(values.rbtnAnlPersonBerufsabschluss, undefined);
+  assert.equal(values.rbtnAnlBetriebKug, undefined);
+  assert.equal(values.rbtnAnlBetriebZuschuss, undefined);
 });
 
 test("Teilnehmerliste: caps at the form's 18 rows", () => {

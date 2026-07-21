@@ -21,6 +21,7 @@ import {
   generateParticipantForm,
   generateTeilnehmerliste,
   generateTraegerbescheinigung,
+  generateVollmacht,
   type GeneratedFile,
 } from "./generate";
 
@@ -53,6 +54,14 @@ const DOC_TYPES: Record<string, DocSpec> = {
     title: "Arbeitnehmererklärung (BA ba042354)",
     path: "single",
     generate: (d) => generateArbeitnehmererklaerung(d),
+    requires: (d) => Boolean(d.employer),
+  },
+  // Power of attorney, participant-signed. Authorises the employer (Betrieb);
+  // needs the employer present, else data_missing + clarification task.
+  vollmacht: {
+    title: "Vollmacht (BA ba051211)",
+    path: "single",
+    generate: (d) => generateVollmacht(d),
     requires: (d) => Boolean(d.employer),
   },
   // ---- Sammelantrag (Firma, eService 7 Schritte)
