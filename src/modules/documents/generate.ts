@@ -165,6 +165,8 @@ export async function generateTeilnehmerliste(
         city: data.employer?.city ?? null,
       },
       data.measure?.name ?? "",
+      // svNumber now flows from collectCompanyCohort (Epic A); still blank for
+      // any participant whose number has not been captured yet.
       cohort,
     ),
   );

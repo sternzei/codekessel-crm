@@ -7,6 +7,7 @@ import {
   getLeadDetail,
   listEmployerOptions,
   listMeasureOptions,
+  type LeadDetail,
 } from "@/modules/participants/detail";
 import {
   addContactNote,
@@ -17,6 +18,7 @@ import {
   setLeadStatus,
   undoLastAction,
   updateEligibility,
+  updateParticipantBaData,
 } from "@/modules/participants/actions-internal";
 import { UndoHotkey } from "@/components/internal/UndoHotkey";
 import {
@@ -33,13 +35,18 @@ export default async function LeadDetailPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ gate?: string; undo?: string; transition?: string }>;
+  searchParams: Promise<{
+    gate?: string;
+    undo?: string;
+    transition?: string;
+    badata?: string;
+  }>;
 }) {
   const session = await getSession();
   if (!session) redirect("/auth/sign-in");
 
   const { id } = await params;
-  const { gate, undo, transition } = await searchParams;
+  const { gate, undo, transition, badata } = await searchParams;
   const tStatus = await getTranslations("status.participant");
 
   const data = await withTenant(session.tenantId, async (tx) => {
@@ -100,6 +107,22 @@ export default async function LeadDetailPage({
       {undo === "none" ? (
         <p className="info-banner" style={{ marginBottom: "var(--space-6)" }}>
           Keine Aktion zum Rückgängigmachen vorhanden.
+        </p>
+      ) : null}
+
+      {badata === "saved" ? (
+        <p className="info-banner" style={{ marginBottom: "var(--space-6)" }}>
+          BA-Antragsdaten gespeichert.
+        </p>
+      ) : null}
+      {badata === "iban" || badata === "bic" || badata === "sv" ? (
+        <p className="gate-banner" style={{ marginBottom: "var(--space-6)" }}>
+          {badata === "iban"
+            ? "Die IBAN ist ungültig (Prüfsumme). Bitte korrigieren."
+            : badata === "bic"
+              ? "Der BIC hat kein gültiges Format (8 oder 11 Zeichen)."
+              : "Die Sozialversicherungsnummer hat kein gültiges Format."}{" "}
+          Die übrigen Angaben wurden nicht gespeichert.
         </p>
       ) : null}
 
@@ -164,6 +187,8 @@ export default async function LeadDetailPage({
               </button>
             </form>
           </section>
+
+          <BaDataSection participant={p} />
 
           <section className="section" aria-label="Kontaktnotizen">
             <h2>Kontaktnotizen</h2>
@@ -369,6 +394,236 @@ export default async function LeadDetailPage({
         </div>
       </div>
     </>
+  );
+}
+
+const WEEKDAYS = [
+  ["mon", "Mo"],
+  ["tue", "Di"],
+  ["wed", "Mi"],
+  ["thu", "Do"],
+  ["fri", "Fr"],
+  ["sat", "Sa"],
+  ["sun", "So"],
+] as const;
+
+function BaDataSection({
+  participant: p,
+}: {
+  participant: LeadDetail["participant"];
+}) {
+  const qual = p.qualificationHistory?.[0];
+  const funding = p.fundingStatus;
+  const components = p.salaryComponents ?? [];
+
+  return (
+    <section className="section" aria-label="BA-Antragsdaten">
+      <h2>BA-Antragsdaten</h2>
+      <p style={{ fontSize: "var(--text-xs)", color: "var(--color-ink-faint)" }}>
+        Angaben für die BA-Formulare (SV-Nummer, Bankdaten, Gehalt,
+        Arbeits-/Schulungszeiten, Berufsabschluss, Förderstatus).
+      </p>
+      <form
+        action={updateParticipantBaData}
+        style={{ display: "flex", flexDirection: "column", gap: "var(--space-3)" }}
+      >
+        <input type="hidden" name="participantId" value={p.id} />
+        <div className="field">
+          <label htmlFor="svNumber">Sozialversicherungsnummer</label>
+          <input
+            id="svNumber"
+            name="svNumber"
+            defaultValue={p.svNumber ?? ""}
+            placeholder="z. B. 15070649C103"
+          />
+        </div>
+        <div className="inline-form">
+          <div className="field" style={{ flex: 1 }}>
+            <label htmlFor="iban">IBAN (Person)</label>
+            <input id="iban" name="iban" defaultValue={p.iban ?? ""} />
+          </div>
+          <div className="field" style={{ width: "9rem" }}>
+            <label htmlFor="bic">BIC</label>
+            <input id="bic" name="bic" defaultValue={p.bic ?? ""} />
+          </div>
+        </div>
+        <div className="inline-form">
+          <div className="field" style={{ flex: 1 }}>
+            <label htmlFor="monthlyGrossSalary">Monatl. Bruttogehalt (EUR)</label>
+            <input
+              id="monthlyGrossSalary"
+              name="monthlyGrossSalary"
+              inputMode="decimal"
+              defaultValue={p.monthlyGrossSalary ?? ""}
+            />
+          </div>
+          <div className="field" style={{ width: "8rem" }}>
+            <label htmlFor="weeklyWorkingHours">Std./Woche</label>
+            <input
+              id="weeklyWorkingHours"
+              name="weeklyWorkingHours"
+              inputMode="decimal"
+              defaultValue={p.weeklyWorkingHours ?? ""}
+            />
+          </div>
+          <div className="field" style={{ width: "8rem" }}>
+            <label htmlFor="monthlyWorkingHours">Std./Monat</label>
+            <input
+              id="monthlyWorkingHours"
+              name="monthlyWorkingHours"
+              inputMode="decimal"
+              defaultValue={p.monthlyWorkingHours ?? ""}
+            />
+          </div>
+          <div className="field" style={{ width: "10rem" }}>
+            <label htmlFor="freistellungsstunden">Freistellung (Std.)</label>
+            <input
+              id="freistellungsstunden"
+              name="freistellungsstunden"
+              inputMode="decimal"
+              defaultValue={p.freistellungsstunden ?? ""}
+            />
+          </div>
+        </div>
+
+        <fieldset style={{ border: "none", padding: 0, margin: 0 }}>
+          <legend style={{ fontSize: "var(--text-sm)", fontWeight: 600 }}>
+            Vergütungsbestandteile
+          </legend>
+          {[0, 1, 2].map((i) => (
+            <div className="inline-form" key={i}>
+              <div className="field" style={{ flex: 1 }}>
+                <label htmlFor={`salaryLabel${i}`}>Bezeichnung</label>
+                <input
+                  id={`salaryLabel${i}`}
+                  name={`salaryLabel${i}`}
+                  defaultValue={components[i]?.label ?? ""}
+                />
+              </div>
+              <div className="field" style={{ width: "8rem" }}>
+                <label htmlFor={`salaryAmount${i}`}>Betrag (EUR)</label>
+                <input
+                  id={`salaryAmount${i}`}
+                  name={`salaryAmount${i}`}
+                  inputMode="decimal"
+                  defaultValue={components[i] ? String(components[i].amountEur) : ""}
+                />
+              </div>
+            </div>
+          ))}
+        </fieldset>
+
+        <fieldset style={{ border: "none", padding: 0, margin: 0 }}>
+          <legend style={{ fontSize: "var(--text-sm)", fontWeight: 600 }}>
+            Schulungszeiten (Uhrzeiten je Wochentag)
+          </legend>
+          {WEEKDAYS.map(([key, label]) => (
+            <div className="inline-form" key={key}>
+              <span
+                style={{
+                  width: "2.5rem",
+                  alignSelf: "center",
+                  fontSize: "var(--text-sm)",
+                }}
+              >
+                {label}
+              </span>
+              <div className="field" style={{ width: "8rem" }}>
+                <label htmlFor={`schulung_${key}_from`}>von</label>
+                <input
+                  id={`schulung_${key}_from`}
+                  name={`schulung_${key}_from`}
+                  type="time"
+                  defaultValue={p.schulungszeiten?.[key]?.from ?? ""}
+                />
+              </div>
+              <div className="field" style={{ width: "8rem" }}>
+                <label htmlFor={`schulung_${key}_to`}>bis</label>
+                <input
+                  id={`schulung_${key}_to`}
+                  name={`schulung_${key}_to`}
+                  type="time"
+                  defaultValue={p.schulungszeiten?.[key]?.to ?? ""}
+                />
+              </div>
+            </div>
+          ))}
+        </fieldset>
+
+        <fieldset style={{ border: "none", padding: 0, margin: 0 }}>
+          <legend style={{ fontSize: "var(--text-sm)", fontWeight: 600 }}>
+            Berufsabschluss
+          </legend>
+          <div className="field">
+            <label htmlFor="qualBeruf">Berufsbezeichnung</label>
+            <input id="qualBeruf" name="qualBeruf" defaultValue={qual?.beruf ?? ""} />
+          </div>
+          <div className="inline-form">
+            <div className="field" style={{ width: "11rem" }}>
+              <label htmlFor="qualAbschlussdatum">Zeugnisdatum</label>
+              <input
+                id="qualAbschlussdatum"
+                name="qualAbschlussdatum"
+                type="date"
+                defaultValue={qual?.abschlussdatum ?? ""}
+              />
+            </div>
+            <div className="field" style={{ width: "11rem" }}>
+              <label htmlFor="qualAusbildungVon">Ausbildung von</label>
+              <input
+                id="qualAusbildungVon"
+                name="qualAusbildungVon"
+                type="date"
+                defaultValue={qual?.ausbildungVon ?? ""}
+              />
+            </div>
+            <div className="field" style={{ width: "11rem" }}>
+              <label htmlFor="qualAusbildungBis">Ausbildung bis</label>
+              <input
+                id="qualAusbildungBis"
+                name="qualAusbildungBis"
+                type="date"
+                defaultValue={qual?.ausbildungBis ?? ""}
+              />
+            </div>
+          </div>
+        </fieldset>
+
+        <fieldset style={{ border: "none", padding: 0, margin: 0 }}>
+          <legend style={{ fontSize: "var(--text-sm)", fontWeight: 600 }}>
+            Förderstatus
+          </legend>
+          <label className="checkbox-row">
+            <input
+              type="checkbox"
+              name="fundingKug"
+              defaultChecked={Boolean(funding?.kug)}
+            />
+            Kurzarbeitergeld (KuG)
+          </label>
+          <label className="checkbox-row">
+            <input
+              type="checkbox"
+              name="fundingEgz"
+              defaultChecked={Boolean(funding?.egz)}
+            />
+            Eingliederungszuschuss (EGZ)
+          </label>
+          <div className="field">
+            <label htmlFor="fundingOther">Sonstige Förderung</label>
+            <input
+              id="fundingOther"
+              name="fundingOther"
+              defaultValue={funding?.other ?? ""}
+            />
+          </div>
+        </fieldset>
+
+        <button type="submit" className="button button--sm">
+          BA-Antragsdaten speichern
+        </button>
+      </form>
+    </section>
   );
 }
 

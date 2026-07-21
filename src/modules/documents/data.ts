@@ -102,6 +102,9 @@ export async function collectCompanyCohort(
       firstName: participants.firstName,
       lastName: participants.lastName,
       dateOfBirth: participants.dateOfBirth,
+      // Epic A: the SV number is now captured centrally, so the cohort list can
+      // fill it in (previously always blank).
+      svNumber: participants.svNumber,
     })
     .from(participants)
     .where(

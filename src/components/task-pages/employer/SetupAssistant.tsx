@@ -1,5 +1,6 @@
 import type { employers } from "@/db/schema";
 import { submitEmployerSetup } from "@/modules/employers/actions";
+import { STAFFING_BANDS } from "@/lib/ba-format";
 
 type EmployerRow = typeof employers.$inferSelect;
 
@@ -21,6 +22,10 @@ export function SetupAssistant({ token, employer, saved }: SetupAssistantProps) 
     (employer.agsRegistered === true && Boolean(employer.agsContactName));
   const step3Done = Boolean(employer.contactName && employer.contactEmail);
   const step4Done = employer.timeModelStatus === "yes";
+  const step5Done = Boolean(employer.legalForm && employer.iban);
+  const staffing = new Map(
+    (employer.staffingByHoursBand ?? []).map((b) => [b.band, b.count]),
+  );
 
   return (
     <main className="task-card" style={{ maxWidth: "34rem" }}>
@@ -190,6 +195,68 @@ export function SetupAssistant({ token, employer, saved }: SetupAssistantProps) 
               <option value="not_possible">Aktuell nicht möglich</option>
             </select>
           </div>
+        </WizardStep>
+
+        <WizardStep n={5} title="Weitere Angaben für den Antrag" done={step5Done}>
+          <p className="step-help">
+            Für den Förderantrag benötigt die Agentur für Arbeit einige
+            Unternehmensangaben. Alle Felder sind optional — Sie können auch
+            später ergänzen.
+          </p>
+          <div className="field">
+            <label htmlFor="legalForm">Rechtsform</label>
+            <input
+              id="legalForm"
+              name="legalForm"
+              defaultValue={employer.legalForm ?? ""}
+              placeholder="z. B. GmbH"
+            />
+          </div>
+          <div className="field">
+            <label htmlFor="iban">IBAN (Geschäftskonto)</label>
+            <input id="iban" name="iban" defaultValue={employer.iban ?? ""} />
+          </div>
+          <div className="field">
+            <label htmlFor="bic">BIC</label>
+            <input id="bic" name="bic" defaultValue={employer.bic ?? ""} />
+          </div>
+          <div className="field">
+            <label htmlFor="betriebsvereinbarung">
+              Gibt es eine Betriebsvereinbarung oder einen Tarifvertrag zur
+              Weiterbildung?
+            </label>
+            <select
+              id="betriebsvereinbarung"
+              name="betriebsvereinbarung"
+              defaultValue={
+                employer.hasBetriebsvereinbarung == null
+                  ? ""
+                  : employer.hasBetriebsvereinbarung
+                    ? "yes"
+                    : "no"
+              }
+            >
+              <option value="">— bitte wählen —</option>
+              <option value="yes">Ja</option>
+              <option value="no">Nein</option>
+            </select>
+          </div>
+          <fieldset style={{ border: "none", padding: 0, margin: 0 }}>
+            <legend style={{ fontSize: "var(--text-sm)", fontWeight: 600 }}>
+              Beschäftigte nach Wochenarbeitszeit
+            </legend>
+            {STAFFING_BANDS.map((band) => (
+              <div className="field" key={band.key}>
+                <label htmlFor={`staffing_${band.key}`}>{band.label}</label>
+                <input
+                  id={`staffing_${band.key}`}
+                  name={`staffing_${band.key}`}
+                  inputMode="numeric"
+                  defaultValue={staffing.get(band.key)?.toString() ?? ""}
+                />
+              </div>
+            ))}
+          </fieldset>
         </WizardStep>
 
         <button type="submit" className="button">

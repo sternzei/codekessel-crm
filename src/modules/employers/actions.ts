@@ -11,6 +11,14 @@ import {
   loadTokenContext,
   verifyTokenSignature,
 } from "@/modules/tokens/service";
+import {
+  isValidBic,
+  isValidIban,
+  normalizeBic,
+  normalizeIban,
+  parseSalaryComponents,
+  parseStaffingBands,
+} from "@/lib/ba-format";
 import { deriveEmployerStatus, recomputeEmployerStatus } from "./service";
 
 const EMPLOYER_SCOPES = new Set([
@@ -34,6 +42,11 @@ const setupSchema = z.object({
   timeModel: z
     .enum(["yes", "partial", "not_possible", "unclear"])
     .optional(),
+  // Epic A additions (BA application data).
+  legalForm: z.string().trim().max(100).optional(),
+  iban: z.string().trim().max(40).optional(),
+  bic: z.string().trim().max(20).optional(),
+  betriebsvereinbarung: z.enum(["yes", "no"]).optional(),
 });
 
 /**
@@ -56,9 +69,22 @@ export async function submitEmployerSetup(formData: FormData): Promise<void> {
     contactEmail: formData.get("contactEmail") ?? "",
     contactPhone: formData.get("contactPhone") ?? undefined,
     timeModel: formData.get("timeModel") ?? undefined,
+    legalForm: formData.get("legalForm") ?? undefined,
+    iban: formData.get("iban") ?? undefined,
+    bic: formData.get("bic") ?? undefined,
+    betriebsvereinbarung: formData.get("betriebsvereinbarung") || undefined,
   });
   if (!parsed.success) return;
   const input = parsed.data;
+  const read = (key: string): string | undefined =>
+    formData.get(key)?.toString();
+  // Conservative: only store a well-formed IBAN/BIC; a malformed value is
+  // ignored (the wizard re-renders so the employer can retry) rather than
+  // rejecting the whole partial save or persisting garbage.
+  const iban = input.iban && isValidIban(input.iban) ? input.iban : undefined;
+  const bic = input.bic && isValidBic(input.bic) ? input.bic : undefined;
+  const staffing = parseStaffingBands(read);
+  const salaryComponents = parseSalaryComponents(read);
 
   const signature = await verifyTokenSignature(input.token);
   if (!signature) redirect(`/t/${input.token}`);
@@ -103,6 +129,17 @@ export async function submitEmployerSetup(formData: FormData): Promise<void> {
           : employer.timeModelStatus,
         trainingSupportConfirmed:
           input.timeModel === "yes" ? true : employer.trainingSupportConfirmed,
+        legalForm: input.legalForm || employer.legalForm,
+        iban: iban ? normalizeIban(iban) : employer.iban,
+        bic: bic ? normalizeBic(bic) : employer.bic,
+        hasBetriebsvereinbarung:
+          input.betriebsvereinbarung === "yes"
+            ? true
+            : input.betriebsvereinbarung === "no"
+              ? false
+              : employer.hasBetriebsvereinbarung,
+        staffingByHoursBand: staffing ?? employer.staffingByHoursBand,
+        salaryComponents: salaryComponents ?? employer.salaryComponents,
       })
       .where(eq(employers.id, employerId));
 

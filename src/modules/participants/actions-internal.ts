@@ -30,6 +30,19 @@ import {
   recordAvailability,
 } from "@/modules/participants/transitions";
 import { ParticipantTransitionError } from "@/modules/participants/status-machine";
+import {
+  isValidBic,
+  isValidIban,
+  isValidSvNumber,
+  normalizeBic,
+  normalizeIban,
+  normalizeSvNumber,
+  parseDecimalString,
+  parseFundingStatus,
+  parseQualificationHistory,
+  parseSalaryComponents,
+  parseWeeklyTimes,
+} from "@/lib/ba-format";
 
 // All internal (console) server actions. Every action re-checks the session —
 // the layout guard alone is not an authorization boundary.
@@ -461,6 +474,74 @@ export async function updateEligibility(formData: FormData): Promise<void> {
   });
 
   revalidatePath(leadPath(parsed.participantId));
+}
+
+// ---------------------------------------------------------------------------
+// BA application data (Epic A) — consultant records the §186 data gaps so the
+// BA forms can be prefilled. Scalars are validated conservatively (only a
+// malformed non-empty value is rejected); structured sets are parsed to jsonb.
+// ---------------------------------------------------------------------------
+
+const baScalarSchema = z.object({
+  participantId: z.string().uuid(),
+  svNumber: z.string().trim().max(20).optional(),
+  iban: z.string().trim().max(40).optional(),
+  bic: z.string().trim().max(20).optional(),
+});
+
+export async function updateParticipantBaData(
+  formData: FormData,
+): Promise<void> {
+  const session = await requireSession();
+  const read = (key: string): string | undefined =>
+    formData.get(key)?.toString();
+  const parsed = baScalarSchema.safeParse({
+    participantId: formData.get("participantId"),
+    svNumber: read("svNumber"),
+    iban: read("iban"),
+    bic: read("bic"),
+  });
+  if (!parsed.success) redirect("/pipeline");
+  const { participantId, svNumber, iban, bic } = parsed.data;
+
+  // Reject only malformed non-empty values — a valid input always passes.
+  if (svNumber && !isValidSvNumber(svNumber))
+    redirect(`${leadPath(participantId)}?badata=sv`);
+  if (iban && !isValidIban(iban))
+    redirect(`${leadPath(participantId)}?badata=iban`);
+  if (bic && !isValidBic(bic))
+    redirect(`${leadPath(participantId)}?badata=bic`);
+
+  await withTenant(session.tenantId, async (tx) => {
+    await tx
+      .update(participants)
+      .set({
+        svNumber: svNumber ? normalizeSvNumber(svNumber) : null,
+        iban: iban ? normalizeIban(iban) : null,
+        bic: bic ? normalizeBic(bic) : null,
+        monthlyGrossSalary: parseDecimalString(read("monthlyGrossSalary")),
+        weeklyWorkingHours: parseDecimalString(read("weeklyWorkingHours")),
+        monthlyWorkingHours: parseDecimalString(read("monthlyWorkingHours")),
+        freistellungsstunden: parseDecimalString(read("freistellungsstunden")),
+        salaryComponents: parseSalaryComponents(read),
+        schulungszeiten: parseWeeklyTimes(read),
+        qualificationHistory: parseQualificationHistory(read),
+        fundingStatus: parseFundingStatus(read),
+      })
+      .where(eq(participants.id, participantId));
+
+    await logActivity(tx, {
+      tenantId: session.tenantId,
+      actorKind: "internal_user",
+      actorUserId: session.id,
+      subjectKind: "participant",
+      subjectId: participantId,
+      event: "ba_data_updated",
+    });
+  });
+
+  revalidatePath(leadPath(participantId));
+  redirect(`${leadPath(participantId)}?badata=saved`);
 }
 
 // ---------------------------------------------------------------------------
