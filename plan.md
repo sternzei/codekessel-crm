@@ -178,10 +178,10 @@ forms** the eService actually needs. Builder status in
 | Sammelantrag-Teilnehmerliste (BA I FW 501/502) | company step 4 | `buildTeilnehmerlisteValues` | ✅ done (Kopf + rows; SV-Nummern jetzt aus zentralen Daten, Epic A) |
 | Arbeitnehmererklärung (ba042354) | single upload | `buildArbeitnehmererklaerungValues` | ✅ done (11/16 mapped; GdB/ungelernte Tätigkeit/Bedarfsgemeinschaft bleiben leer, da nicht erfasst) |
 | Vollmacht (ba051211) | participant sign | `buildVollmachtValues` | ✅ done (Anlage + Vollmacht; Radios nur bei belegten Daten, sonst leer; Kundennr./Arbeitserlaubnis/GdB/Geburtsort/Familienstand nicht erfasst) |
-| Teilnehmer-Fragebogen (ba046157) | supplemental | — | ⬜ mapping open (190 fields) |
+| Teilnehmer-Fragebogen (ba046157) | supplemental | `buildFragebogenValues` | ✅ done (~28/190 aus zentralen Daten; FB-Block Person/Bank/Maßnahme/Berufsabschluss; AFB-Fahrkosten-/Betreuungs-Anhang bleibt leer — nicht erfasst) |
 | Schlusserklärung (ba042364) | after measure end | — | ⬜ entfällt bei eService-Antrag (112 fields) |
 
-**Headline: 4 of 6 upload forms are wired; 2 remain (Fragebogen next).**
+**Headline: 5 of 6 upload forms are wired; only Schlusserklärung remains (entfällt bei eService).**
 
 Still-missing data (plan.md §186) is now **captured by Epic A** — nullable
 columns on `participants` (SV-Nummer, IBAN/BIC, Gehalt + Komponenten, Wochen-/

@@ -5,6 +5,7 @@ import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import {
   BA_TEMPLATES,
   buildArbeitnehmererklaerungValues,
+  buildFragebogenValues,
   buildTeilnehmerlisteValues,
   buildTraegerbescheinigungValues,
   buildVollmachtValues,
@@ -132,6 +133,8 @@ export async function generateParticipantForm(
 /** Provider = the Bildungsträger operating this platform (Zertifikate liegen
  * in templates/documents/). City is used for "Ort, Datum" on ba042369. */
 const PROVIDER_CITY = process.env.PROVIDER_CITY ?? "Böblingen";
+/** Bildungsträger name printed as "Name des Maßnahmeträgers" on BA forms. */
+const PROVIDER_NAME = process.env.PROVIDER_NAME ?? "codeKessel Inh. Ugur Karatas";
 
 /**
  * Trägerbescheinigung (ba042369) — required upload for the SINGLE eService
@@ -199,6 +202,21 @@ export async function generateVollmacht(
   const bytes = await fillBaForm(
     BA_TEMPLATES.vollmacht,
     buildVollmachtValues(data),
+  );
+  return persist(bytes);
+}
+
+/**
+ * Teilnehmer-Fragebogen (ba046157) — participant questionnaire. Editable
+ * AcroForm autofilled from central data; the travel/childcare annex stays
+ * blank (not collected here) and is completed by hand if ever needed.
+ */
+export async function generateFragebogen(
+  data: ApplicationData,
+): Promise<GeneratedFile> {
+  const bytes = await fillBaForm(
+    BA_TEMPLATES.fragebogen,
+    buildFragebogenValues(data, { name: PROVIDER_NAME }),
   );
   return persist(bytes);
 }

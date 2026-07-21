@@ -80,6 +80,14 @@ function totalStaffing(
   return bands.reduce((sum, b) => sum + b.count, 0);
 }
 
+/** Formatted measure end date (start + durationWeeks), or "" when unknown. */
+function formatMeasureEnd(measure: ApplicationData["measure"]): string {
+  if (!measure?.startDate) return "";
+  const end = new Date(measure.startDate);
+  end.setDate(end.getDate() + measure.durationWeeks * 7);
+  return fmtDate(end.toISOString());
+}
+
 /**
  * Generic AcroForm filler for the real BA templates. Unknown/missing fields
  * are skipped silently — BA revises its forms, so a template update must
@@ -341,6 +349,83 @@ export function buildVollmachtValues(
   if (funding?.kug === true) values.rbtnAnlBetriebKug = { option: "ja" };
   if (funding?.egz === true || Boolean(funding?.other))
     values.rbtnAnlBetriebZuschuss = { option: "ja" };
+
+  return values;
+}
+
+// ---------------------------------------------------------------------------
+// Teilnehmer-Fragebogen (ba046157) — 190 fields; verified against
+// templates/pdf/fragebogen_ba046157.pdf. Two logical parts:
+//   • FB_*  — the questionnaire proper (person, bank, measure, Berufsabschluss).
+//   • AFB_* — the Antrag Fahrkosten/Betreuungskosten annex (travel tickets per
+//             leg, lodging, up to 3 children). None of that is captured in this
+//             system, so the whole AFB block stays blank *except* the identity
+//             fields that repeat the person.
+// ~28 of 190 fields are wired to central/Epic-A data; the remaining ~162 are
+// left blank on purpose (travel/childcare annex + fields we never collect such
+// as BA-Kundennummer, Staatsangehörigkeit, Kreditinstitut, Bildungsgutschein-
+// nummer, Träger-Anschrift). Radios are affirmed only when data supports them.
+// ---------------------------------------------------------------------------
+
+export function buildFragebogenValues(
+  data: ApplicationData,
+  provider: { name: string },
+  today: Date = new Date(),
+): BaFormValues {
+  const p = data.participant;
+  const m = data.measure;
+  const qual = firstQualification(data);
+  const funding = p.fundingStatus;
+  const person = splitStreet(p.street);
+  const geburtsdatum = fmtDate(p.dateOfBirth);
+
+  const values: BaFormValues = {
+    // --- Fragebogen (FB): person + bank
+    txtf_1_FB_Vorname: p.firstName,
+    txtf_2_FB_Nachname: p.lastName,
+    txtf_3_FB_Geburtsdatum: geburtsdatum,
+    txtf_5_FB_Sozialversicherungsnummer: p.svNumber ?? "",
+    txtf_6_FB_Strasse: person.street,
+    txtf_7_FB_Hausummer: person.houseNo,
+    txtf_8_FB_PLZ: p.postalCode ?? "",
+    txtf_9_FB_Wohnort: p.city ?? "",
+    txtf_11_FB_Email: p.email ?? "",
+    txtf_12_FB_Telefon: p.phone ?? "",
+    txtf_13_FB_IBAN: p.iban ?? "",
+    txtf_14_FB_BIC: p.bic ?? "",
+    // --- Fragebogen (FB): measure
+    txtf_17_FB_Massnahmenummer: m?.azavNumber ?? "",
+    txtf_27_FB_Ziel_der_Weiterbildungsmassnahme: m?.objective ?? m?.name ?? "",
+    txtf_28_FB_Name_Massnahmetraeger: provider.name,
+    txtf_34_FB_Beginn_Teilnahme: fmtDate(m?.startDate),
+    txtf_35_FB_Ende_Teilnahme: formatMeasureEnd(m),
+    txtf_44_FB_Ort_Erklaerung_Unterschrift: p.city ?? "",
+    txtf_45_FB_Datum_Erklaerung_Unterschrift: fmtDate(today.toISOString()),
+    // --- AFB annex: only the repeated identity fields are backed by data.
+    txtf_1_AFB_Vorname: p.firstName,
+    txtf_2_AFB_Nachname: p.lastName,
+    txtf_3_AFB_Geburtsdatum: geburtsdatum,
+  };
+
+  // SV-pflichtiges Arbeitsverhältnis: only when employment status is known.
+  if (p.employmentStatus === "employed") {
+    values.rbtn_18_FB_SozVersPfl_Arbeitsverhaeltnis = { option: "ja" };
+  } else if (p.employmentStatus === "unemployed") {
+    values.rbtn_18_FB_SozVersPfl_Arbeitsverhaeltnis = { option: "nein" };
+  }
+
+  // Anspruch auf Transfer-Kurzarbeitergeld → affirm only.
+  if (funding?.kug === true) {
+    values.rbtn_19_FB_Anspruch_TKug = { option: "ja" };
+  }
+
+  // Berufsabschluss im Ausbildungsberuf → affirm + fill details when captured.
+  if (qual) {
+    values.rbtn_22_FB_Berufsabschluss_Ausbildungsberuf = { option: "ja" };
+    values.txtf_23_FB_Abschluss_Beruf = qual.beruf;
+    values.txtf_24_FB_Ausbildungszeit_Datum_von = fmtDate(qual.ausbildungVon);
+    values.txtf_24_FB_Ausbildungszeit_Datum_bis = fmtDate(qual.ausbildungBis);
+  }
 
   return values;
 }

@@ -18,6 +18,7 @@ import {
   generateEmployerDatasheet,
   generateEServiceCompanionCompany,
   generateEServiceCompanionSingle,
+  generateFragebogen,
   generateParticipantForm,
   generateTeilnehmerliste,
   generateTraegerbescheinigung,
@@ -63,6 +64,14 @@ const DOC_TYPES: Record<string, DocSpec> = {
     path: "single",
     generate: (d) => generateVollmacht(d),
     requires: (d) => Boolean(d.employer),
+  },
+  // Participant questionnaire; a linked measure is the hard prerequisite,
+  // else data_missing + clarification task.
+  fragebogen: {
+    title: "Teilnehmer-Fragebogen (BA ba046157)",
+    path: "single",
+    generate: (d) => generateFragebogen(d),
+    requires: (d) => Boolean(d.measure),
   },
   // ---- Sammelantrag (Firma, eService 7 Schritte)
   teilnehmerliste: {
