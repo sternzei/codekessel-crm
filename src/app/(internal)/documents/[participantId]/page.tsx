@@ -104,6 +104,30 @@ export default async function DocumentChecklistPage({
             </div>
           </section>
 
+          <section className="section" aria-label="Teilnehmerformulare">
+            <h2>Teilnehmerformulare (Arbeitnehmer)</h2>
+            <p style={{ fontSize: "var(--text-xs)", color: "var(--color-ink-faint)" }}>
+              Vom Teilnehmer auszufüllende/zu unterschreibende BA-Formulare.
+              Vorbefüllt aus den zentralen Daten; nicht erfasste Angaben bleiben
+              leer und werden von Hand ergänzt.
+            </p>
+            <div className="quick-actions">
+              {(
+                [
+                  ["arbeitnehmererklaerung", "Arbeitnehmererklärung (BA-Formular)"],
+                ] as const
+              ).map(([type, label]) => (
+                <form key={type} action={generateDocument}>
+                  <input type="hidden" name="participantId" value={p.id} />
+                  <input type="hidden" name="type" value={type} />
+                  <button type="submit" className="button button--sm">
+                    {label}
+                  </button>
+                </form>
+              ))}
+            </div>
+          </section>
+
           <section className="section" aria-label="Sammelantrag">
             <h2>Sammelantrag (Firma) — BA eService (7 Schritte)</h2>
             <p style={{ fontSize: "var(--text-xs)", color: "var(--color-ink-faint)" }}>

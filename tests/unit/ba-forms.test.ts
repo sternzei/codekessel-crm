@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  buildArbeitnehmererklaerungValues,
   buildTeilnehmerlisteValues,
   buildTraegerbescheinigungValues,
   TEILNEHMERLISTE_MAX_ROWS,
@@ -105,6 +106,70 @@ test("Teilnehmerliste: employer header + one row per cohort member", () => {
   assert.equal(values.dateTabTeilnehmerPerson2GebDatum, "");
   // No third row.
   assert.equal(values.txtfTabTeilnehmerPerson3Vorname, undefined);
+});
+
+// --- Arbeitnehmererklärung (ba042354) --------------------------------------
+
+function arbeitnehmerData(overrides: {
+  hasQualification?: boolean;
+  employer?: boolean;
+}): ApplicationData {
+  return {
+    participant: {
+      firstName: "Lena",
+      lastName: "Hoffmann",
+      dateOfBirth: "1990-01-01",
+      city: "Böblingen",
+      qualificationHistory: overrides.hasQualification
+        ? [{ beruf: "Kauffrau", abschlussdatum: "2015-06-30" }]
+        : null,
+    },
+    employer:
+      overrides.employer === false
+        ? null
+        : {
+            companyName: "Muster GmbH",
+            street: "Lauchstraße 1",
+            postalCode: "71032",
+            city: "Böblingen",
+          },
+    measure: null,
+    documents: [],
+    signatures: [],
+    consents: [],
+    application: null,
+  } as unknown as ApplicationData;
+}
+
+test("Arbeitnehmererklärung: maps person + Betrieb + qualification", () => {
+  const values = buildArbeitnehmererklaerungValues(
+    arbeitnehmerData({ hasQualification: true }),
+    new Date("2026-07-21T12:00:00Z"),
+  );
+  assert.equal(values.txtf_Vorname, "Lena");
+  assert.equal(values.txtf_Nachname, "Hoffmann");
+  assert.equal(values.txtf_Geburtsdatum, "01.01.1990");
+  assert.equal(values.txtf_Betriebsbezeichnung, "Muster GmbH");
+  assert.equal(values.txtf_Strasse, "Lauchstraße");
+  assert.equal(values.txtf_Hausnummer, "1");
+  assert.equal(values.txtf_PLZ, "71032");
+  assert.equal(values.txtf_Ort, "Böblingen");
+  assert.equal(values.txtf_OrtU, "Böblingen");
+  assert.equal(values.txtf_Datum, "21.07.2026");
+  assert.deepEqual(values.rbtn_Berufsabschluss_vorhanden, { option: "ja" });
+  assert.equal(values.txtf_Berufsabschluss_Berufsbezeichnung, "Kauffrau");
+  assert.equal(values.txtf_Zeugnisdatum, "30.06.2015");
+});
+
+test("Arbeitnehmererklärung: no qualification → 'nein', fields left blank", () => {
+  const values = buildArbeitnehmererklaerungValues(
+    arbeitnehmerData({ hasQualification: false }),
+  );
+  assert.deepEqual(values.rbtn_Berufsabschluss_vorhanden, {
+    option: "nein (weiter mit 13)",
+  });
+  assert.equal(values.txtf_Berufsabschluss_Berufsbezeichnung, undefined);
+  assert.equal(values.txtf_Zeugnisdatum, undefined);
 });
 
 test("Teilnehmerliste: caps at the form's 18 rows", () => {

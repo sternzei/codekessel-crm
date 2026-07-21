@@ -13,6 +13,7 @@ import { canRequestSigner } from "@/modules/signatures/progress";
 import { collectApplicationData, collectCompanyCohort, type ApplicationData } from "./data";
 import type { CohortParticipant } from "./ba-forms";
 import {
+  generateArbeitnehmererklaerung,
   generateCostOverview,
   generateEmployerDatasheet,
   generateEServiceCompanionCompany,
@@ -45,6 +46,14 @@ const DOC_TYPES: Record<string, DocSpec> = {
     path: "single",
     generate: (d) => generateEServiceCompanionSingle(d),
     requires: (d) => Boolean(d.employer && d.measure),
+  },
+  // Employee declaration (single upload). Needs the employer (Betrieb) it
+  // refers to; missing → data_missing + clarification task (existing behaviour).
+  arbeitnehmererklaerung: {
+    title: "Arbeitnehmererklärung (BA ba042354)",
+    path: "single",
+    generate: (d) => generateArbeitnehmererklaerung(d),
+    requires: (d) => Boolean(d.employer),
   },
   // ---- Sammelantrag (Firma, eService 7 Schritte)
   teilnehmerliste: {

@@ -175,20 +175,22 @@ forms** the eService actually needs. Builder status in
 | Form (BA-Nr.) | Upload path | Builder | Status |
 |---|---|---|---|
 | Trägerbescheinigung (ba042369) | single step 3 / company step 3 | `buildTraegerbescheinigungValues` | ✅ done (15 fields, verified vs `AZAV/Page3.pdf`) |
-| Sammelantrag-Teilnehmerliste (BA I FW 501/502) | company step 4 | `buildTeilnehmerlisteValues` | ✅ done (Kopf + rows; SV-Nummern blank) |
-| Arbeitnehmererklärung (ba042354) | single upload | — | ⬜ mapping open (16 fields) |
+| Sammelantrag-Teilnehmerliste (BA I FW 501/502) | company step 4 | `buildTeilnehmerlisteValues` | ✅ done (Kopf + rows; SV-Nummern jetzt aus zentralen Daten, Epic A) |
+| Arbeitnehmererklärung (ba042354) | single upload | `buildArbeitnehmererklaerungValues` | ✅ done (11/16 mapped; GdB/ungelernte Tätigkeit/Bedarfsgemeinschaft bleiben leer, da nicht erfasst) |
 | Vollmacht (ba051211) | participant sign | — | ⬜ mapping open (42 fields) |
 | Teilnehmer-Fragebogen (ba046157) | supplemental | — | ⬜ mapping open (190 fields) |
 | Schlusserklärung (ba042364) | after measure end | — | ⬜ entfällt bei eService-Antrag (112 fields) |
 
-**Headline: 2 of 6 upload forms are wired; 4 remain (3 need Epic A data first).**
+**Headline: 3 of 6 upload forms are wired; 3 remain (2 mapped this cycle).**
 
-Still-missing data (from the doc's "Bekannte Datenlücken", all marked "—" in
-the companion sheet today): SV-Nummer, IBAN/BIC (Betrieb + Person),
-Gehaltsdaten, Arbeitszeitrahmen + Schulungszeiten (Uhrzeiten je Wochentag),
-Freistellungsstunden, Betriebsvereinbarung/Tarifvertrag, Beschäftigtenzahlen
-nach Stunden-Faktoren, Berufsabschluss-Historie, KuG/EGZ-Status. None of these
-are columns on `participants`/`employers` yet → Epic A is the enabler.
+Still-missing data (plan.md §186) is now **captured by Epic A** — nullable
+columns on `participants` (SV-Nummer, IBAN/BIC, Gehalt + Komponenten, Wochen-/
+Monatsstunden, Schulungszeiten je Wochentag, Freistellungsstunden,
+Berufsabschluss-Historie, KuG/EGZ-Status) and `employers` (Rechtsform,
+Geschäfts-IBAN/BIC, Beschäftigtenzahlen nach Stunden-Faktoren, Vergütungs-
+bestandteile, Betriebsvereinbarung/Tarifvertrag) via migration `0008`,
+editable in the internal detail pages and the employer setup assistant, and
+returned by `collectApplicationData()`.
 
 ### 2c. Production-readiness scorecard
 

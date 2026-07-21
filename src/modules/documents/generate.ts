@@ -4,6 +4,7 @@ import path from "node:path";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import {
   BA_TEMPLATES,
+  buildArbeitnehmererklaerungValues,
   buildTeilnehmerlisteValues,
   buildTraegerbescheinigungValues,
   fillBaForm,
@@ -169,6 +170,20 @@ export async function generateTeilnehmerliste(
       // any participant whose number has not been captured yet.
       cohort,
     ),
+  );
+  return persist(bytes);
+}
+
+/**
+ * Arbeitnehmererklärung (ba042354) — the employee's declaration, uploaded on
+ * the single path. Editable AcroForm; the employee signs the printed field.
+ */
+export async function generateArbeitnehmererklaerung(
+  data: ApplicationData,
+): Promise<GeneratedFile> {
+  const bytes = await fillBaForm(
+    BA_TEMPLATES.arbeitnehmererklaerung,
+    buildArbeitnehmererklaerungValues(data),
   );
   return persist(bytes);
 }

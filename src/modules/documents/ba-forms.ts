@@ -43,6 +43,23 @@ const fmtDate = (iso: string | null | undefined): string => {
   });
 };
 
+/** Splits "Lauchstraße 1" into street + house number (BA forms separate them). */
+function splitStreet(raw: string | null | undefined): {
+  street: string;
+  houseNo: string;
+} {
+  const value = raw ?? "";
+  const match = value.match(/^(.*?)\s+(\d+\S*)$/);
+  return match
+    ? { street: match[1], houseNo: match[2] }
+    : { street: value, houseNo: "" };
+}
+
+/** First captured qualification entry, if any (Berufsabschluss-Historie). */
+function firstQualification(data: ApplicationData) {
+  return data.participant.qualificationHistory?.[0] ?? null;
+}
+
 /**
  * Generic AcroForm filler for the real BA templates. Unknown/missing fields
  * are skipped silently — BA revises its forms, so a template update must
@@ -157,9 +174,7 @@ export function buildTeilnehmerlisteValues(
   today: Date = new Date(),
 ): BaFormValues {
   // Street number split: BA form has separate Str/HausNr fields.
-  const streetRaw = employer.street ?? "";
-  const match = streetRaw.match(/^(.*?)\s+(\d+\S*)$/);
-  const [street, houseNo] = match ? [match[1], match[2]] : [streetRaw, ""];
+  const { street, houseNo } = splitStreet(employer.street);
 
   const values: BaFormValues = {
     dateSammelantragVom: fmtDate(today.toISOString()),
@@ -182,6 +197,48 @@ export function buildTeilnehmerlisteValues(
     values[`txtfTabTeilnehmerPerson${n}Nachname`] = person.lastName;
     values[`dateTabTeilnehmerPerson${n}GebDatum`] = fmtDate(person.dateOfBirth);
   });
+
+  return values;
+}
+
+// ---------------------------------------------------------------------------
+// Arbeitnehmererklärung (ba042354) — the employee's declaration, single-upload
+// path. 16 fields; verified against templates/pdf/arbeitnehmererklaerung_
+// ba042354.pdf. Betriebs-fields = the employer (Betrieb) the person works at.
+// Fields we do not capture (GdB, ungelernte Tätigkeit, Bedarfsgemeinschaft)
+// are left blank for the employee to complete by hand.
+// ---------------------------------------------------------------------------
+
+export function buildArbeitnehmererklaerungValues(
+  data: ApplicationData,
+  today: Date = new Date(),
+): BaFormValues {
+  const p = data.participant;
+  const e = data.employer;
+  const qual = firstQualification(data);
+  const { street, houseNo } = splitStreet(e?.street);
+
+  const values: BaFormValues = {
+    txtf_Vorname: p.firstName,
+    txtf_Nachname: p.lastName,
+    txtf_Geburtsdatum: fmtDate(p.dateOfBirth),
+    txtf_Betriebsbezeichnung: e?.companyName ?? "",
+    txtf_Strasse: street,
+    txtf_Hausnummer: houseNo,
+    txtf_PLZ: e?.postalCode ?? "",
+    txtf_Ort: e?.city ?? "",
+    txtf_OrtU: p.city ?? "",
+    txtf_Datum: fmtDate(today.toISOString()),
+    // "Berufsabschluss vorhanden?" — ja when a qualification is on file.
+    rbtn_Berufsabschluss_vorhanden: qual
+      ? { option: "ja" }
+      : { option: "nein (weiter mit 13)" },
+  };
+
+  if (qual) {
+    values.txtf_Berufsabschluss_Berufsbezeichnung = qual.beruf;
+    values.txtf_Zeugnisdatum = fmtDate(qual.abschlussdatum);
+  }
 
   return values;
 }
