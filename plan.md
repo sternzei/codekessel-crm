@@ -254,6 +254,19 @@ Goal: turn the placeholder document layer into the real "customer fills the BA f
   blocks complete/submitted) and `form_signatures_qes_pending` (**warning** —
   QES gap surfaced honestly, cannot block without a vendor). Tests:
   `tests/unit/signature-requirements.test.ts`.
+- **US C3 (✅ done — readiness + package):** path-aware eService upload set
+  centralised in `src/modules/applications/upload-set.ts`
+  (`ESERVICE_UPLOAD_SETS`, `evaluateUploadSet`, `resolveApplicantType`), keyed by
+  `applications.applicant_type` per `docs/ESERVICE-ANTRAG.md`. Single requires
+  Trägerbescheinigung + a **signed** Arbeitnehmererklärung (Fragebogen/Vollmacht
+  optional); company requires Teilnehmerliste + Kostenübersicht.
+  `evaluateApplicationReadiness` gained the `upload_set_incomplete` **blocker**
+  (required uploads must be generated and, where SES-signable, signed) — enforced
+  server-side by the existing `changeApplicationStatus` gate for complete/
+  submitted; QES gaps stay a warning. The package export
+  (`applications/package.ts`) prints a per-path "eService-Upload-Set" inventory
+  with ✓/⧗/✗ signed-vs-pending marks, and the internal documents page surfaces
+  the same status. Tests: `tests/unit/application-upload-set.test.ts`.
 - **US C1 (✅ SES done / QES marked):** the new SES forms (Arbeitnehmererklärung,
   Fragebogen) are signable through the EXISTING external flow — the same
   `requestSignature` action, `signature`-entity routing rules (participant/

@@ -10,6 +10,10 @@ import {
   signatures,
 } from "@/db/schema";
 import { findMissingSignatures } from "@/modules/signatures/requirements";
+import {
+  evaluateUploadSet,
+  resolveApplicantType,
+} from "@/modules/applications/upload-set";
 
 // Central data collection (concept §9): everything the application
 // documents need, assembled once. Every generator and the checklist
@@ -189,6 +193,18 @@ export function evaluateApplicationReadiness(
   const missingQesSignatures = missingFormSignatures.filter(
     (s) => s.level === "QES",
   );
+  // Path-aware eService upload set (Epic C): once an application exists, the
+  // required uploads for its applicant_type must be generated AND (where they
+  // carry an SES signature) signed before submission. Skipped until an
+  // application is present so the pure evaluator stays reusable for the
+  // checklist preview on the documents page before an application is created.
+  const uploadSet = data.application
+    ? evaluateUploadSet({
+        applicantType: resolveApplicantType(data.application.applicantType),
+        documents: data.documents,
+        signatures: data.signatures,
+      })
+    : { items: [], missingRequired: [] };
 
   const checks: ReadinessCheck[] = [
     {
@@ -301,6 +317,17 @@ export function evaluateApplicationReadiness(
         missingQesSignatures.length === 0
           ? undefined
           : "QES erforderlich — Signaturanbieter noch nicht angebunden",
+    },
+    {
+      code: "upload_set_incomplete",
+      label: "eService-Upload-Set vollständig (erzeugt & signiert)",
+      severity: "blocker",
+      satisfied: uploadSet.missingRequired.length === 0,
+      state: uploadSet.missingRequired.length === 0 ? "ok" : "missing",
+      hint:
+        uploadSet.missingRequired.length === 0
+          ? undefined
+          : `Fehlt: ${uploadSet.missingRequired.map((i) => i.label).join(", ")}`,
     },
   ];
 

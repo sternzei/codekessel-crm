@@ -11,6 +11,10 @@ import {
   canRequestCanvasSignature,
   pendingQesSigners,
 } from "@/modules/signatures/requirements";
+import {
+  evaluateUploadSet,
+  resolveApplicantType,
+} from "@/modules/applications/upload-set";
 import { fmtDateTime } from "../../leads/[id]/labels";
 
 export const dynamic = "force-dynamic";
@@ -49,6 +53,13 @@ export default async function DocumentChecklistPage({
 
   const checklist = buildChecklist(data);
   const p = data.participant;
+  const uploadSet = data.application
+    ? evaluateUploadSet({
+        applicantType: resolveApplicantType(data.application.applicantType),
+        documents: data.documents,
+        signatures: data.documents.flatMap((d) => data.sigByDoc.get(d.id) ?? []),
+      })
+    : null;
 
   return (
     <>
@@ -83,6 +94,49 @@ export default async function DocumentChecklistPage({
               ))}
             </div>
           </section>
+
+          {uploadSet ? (
+            <section className="section" aria-label="eService-Upload-Set">
+              <h2>
+                eService-Upload-Set ·{" "}
+                {resolveApplicantType(data.application?.applicantType) === "company"
+                  ? "Sammelantrag (Firma)"
+                  : "Einzelantrag"}
+              </h2>
+              <p style={{ fontSize: "var(--text-xs)", color: "var(--color-ink-faint)" }}>
+                Für die Einreichung erforderliche Uploads samt Signaturstatus.
+                Optionale Formulare blockieren die Einreichung nicht.
+              </p>
+              <div className="checklist">
+                {uploadSet.items.map((item) => {
+                  const state = !item.present
+                    ? "missing"
+                    : item.requiresSignature && !item.signed
+                      ? "warn"
+                      : "ok";
+                  const status = !item.present
+                    ? "nicht erzeugt"
+                    : item.requiresSignature && !item.signed
+                      ? item.qesPending
+                        ? "QES ausstehend (Anbieter nicht angebunden)"
+                        : "Signatur ausstehend"
+                      : "vollständig";
+                  return (
+                    <div key={item.type} className="checklist-item" data-state={state}>
+                      <span className="dot" aria-hidden />
+                      <span style={{ flex: 1 }}>
+                        {item.label}
+                        {item.required ? "" : " (optional)"}
+                      </span>
+                      <span style={{ fontSize: "var(--text-xs)", color: "var(--color-ink-faint)" }}>
+                        {status}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+          ) : null}
 
           <section className="section" aria-label="Einzelantrag">
             <h2>Einzelantrag — BA eService (6 Schritte)</h2>

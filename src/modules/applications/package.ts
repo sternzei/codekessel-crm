@@ -1,9 +1,20 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import type { DbHandle } from "@/db/client";
-import { applications, documents, employers, measures, participants } from "@/db/schema";
+import {
+  applications,
+  documents,
+  employers,
+  measures,
+  participants,
+  signatures,
+} from "@/db/schema";
+import {
+  evaluateUploadSet,
+  resolveApplicantType,
+} from "./upload-set";
 
 // Application package export (concept §14): one merged PDF — cover page
 // with an inventory, then every generated/uploaded document in order.
@@ -29,14 +40,33 @@ export async function buildApplicationPackage(
     ? await tx.select().from(measures).where(eq(measures.id, application.measureId))
     : [];
 
-  const docs = (
-    await tx
-      .select()
-      .from(documents)
-      .where(eq(documents.participantId, application.participantId))
-  ).filter(
+  const allDocs = await tx
+    .select()
+    .from(documents)
+    .where(eq(documents.participantId, application.participantId));
+  const docs = allDocs.filter(
     (d) => (d.signedFilePath ?? d.filePath) && d.type !== "application_package",
   );
+
+  // Path-aware upload-set status (Epic C): the exported package documents the
+  // required eService uploads for this applicant_type and whether each is
+  // present and signed, from the SAME evaluator that gates submission.
+  const docIds = allDocs.map((d) => d.id);
+  const sigs = docIds.length
+    ? await tx
+        .select({
+          documentId: signatures.documentId,
+          signerKind: signatures.signerKind,
+          status: signatures.status,
+        })
+        .from(signatures)
+        .where(inArray(signatures.documentId, docIds))
+    : [];
+  const uploadSet = evaluateUploadSet({
+    applicantType: resolveApplicantType(application.applicantType),
+    documents: allDocs,
+    signatures: sigs,
+  });
 
   const merged = await PDFDocument.create();
   const font = await merged.embedFont(StandardFonts.Helvetica);
@@ -63,6 +93,30 @@ export async function buildApplicationPackage(
     y -= 18;
   }
   y -= 12;
+  const pathLabel =
+    resolveApplicantType(application.applicantType) === "company"
+      ? "Sammelantrag (Firma)"
+      : "Einzelantrag";
+  cover.drawText(`eService-Upload-Set — ${pathLabel}:`, {
+    x: 50,
+    y,
+    size: 12,
+    font: bold,
+  });
+  y -= 20;
+  for (const item of uploadSet.items) {
+    const mark = !item.present
+      ? "✗ fehlt"
+      : item.requiresSignature && !item.signed
+        ? item.qesPending
+          ? "⧗ QES ausstehend"
+          : "⧗ Signatur ausstehend"
+        : "✓ vollständig";
+    const suffix = item.required ? "" : " (optional)";
+    cover.drawText(`${mark} — ${item.label}${suffix}`, { x: 60, y, size: 9, font });
+    y -= 15;
+  }
+  y -= 10;
   cover.drawText("Enthaltene Dokumente:", { x: 50, y, size: 12, font: bold });
   y -= 20;
   docs.forEach((doc, index) => {

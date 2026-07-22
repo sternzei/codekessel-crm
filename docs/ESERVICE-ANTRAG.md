@@ -65,6 +65,30 @@ Neue Mappings: Felder mit `pypdf`/`pdf-lib` auslesen, Builder in
 `src/modules/documents/ba-forms.ts` ergänzen, `DOC_TYPES` in
 `src/modules/documents/actions.ts` registrieren.
 
+## Signatur- & Upload-Matrix (Epic C)
+
+Zentral definiert in `src/modules/signatures/requirements.ts` (Signaturart je
+Formular) und `src/modules/applications/upload-set.ts` (Upload-Set je
+Antragsweg). Beide werden von `evaluateApplicationReadiness`
+(`documents/data.ts`), dem Paket-Export (`applications/package.ts`) und der
+Dokumente-Seite konsumiert — eine Quelle der Wahrheit.
+
+| Formular | Signatur | Einzelantrag | Sammelantrag |
+|---|---|---|---|
+| Trägerbescheinigung (ba042369) | Träger (nass/Canvas auf Feld) | Pflicht-Upload | Teil Zertifikate-Schritt |
+| Arbeitnehmererklärung (ba042354) | Teilnehmer:in **SES** (Canvas, echt) | Pflicht-Upload, signiert | — |
+| Teilnehmer-Fragebogen (ba046157) | Teilnehmer:in **SES** (Canvas, echt) | optional | — |
+| Vollmacht (ba051211) | Teilnehmer:in **QES** (Anbieter **nicht angebunden**) | optional, QES ausstehend | — |
+| Teilnehmerliste (BA I FW 501/502) | — | — | Pflicht-Upload |
+| Kostenübersicht (Lehrgangskosten) | — | — | Pflicht-Upload |
+
+**Gate:** `complete`/`submitted` sind blockiert, bis die **Pflicht-Uploads** des
+Antragswegs erzeugt und — wo SES-pflichtig — signiert sind
+(`upload_set_incomplete` + `form_signatures_ses`, beides Blocker). QES-Lücken
+(Vollmacht) sind **Warnung**, kein Blocker: ohne angebundenen QES-Anbieter darf
+die Einreichung nicht dauerhaft unmöglich gemacht — und keine QES vorgetäuscht —
+werden. Der Canvas-(SES-)Pfad wird für QES-Formulare bewusst **nicht** angeboten.
+
 ## Bekannte Datenlücken (Gesamtübersicht-PDF vs. Schema)
 
 Noch nicht zentral erfasst und daher im Begleitblatt als "—" markiert:
