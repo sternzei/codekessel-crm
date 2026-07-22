@@ -10,6 +10,10 @@ import { logActivity } from "@/modules/audit/log";
 import { getSession } from "@/modules/auth/session";
 import { processTransition } from "@/modules/routing/engine";
 import { canRequestSigner } from "@/modules/signatures/progress";
+import {
+  getDocumentSignatureRequirement,
+  type DocumentSignatureRequirement,
+} from "@/modules/signatures/requirements";
 import { collectApplicationData, collectCompanyCohort, type ApplicationData } from "./data";
 import type { CohortParticipant } from "./ba-forms";
 import {
@@ -33,9 +37,28 @@ type DocSpec = {
   path: "single" | "company" | "internal";
   generate: (d: ApplicationData, cohort: CohortParticipant[]) => Promise<GeneratedFile>;
   requires: (d: ApplicationData) => boolean;
+  /** Signature classification for this form (Epic C), or null when the form
+   * needs no digital signature. Derived from the single shared config so the
+   * doc catalogue, signing action and readiness gate never diverge. */
+  signature: DocumentSignatureRequirement | null;
 };
 
-const DOC_TYPES: Record<string, DocSpec> = {
+// Attaches the shared signature classification to each spec by key, so the doc
+// catalogue consumes the SAME config as the readiness gate and signing action.
+function withSignatures<T extends Record<string, Omit<DocSpec, "signature">>>(
+  specs: T,
+): { [K in keyof T]: DocSpec } {
+  const out = {} as { [K in keyof T]: DocSpec };
+  for (const key of Object.keys(specs) as (keyof T)[]) {
+    out[key] = {
+      ...specs[key],
+      signature: getDocumentSignatureRequirement(key as string),
+    };
+  }
+  return out;
+}
+
+const DOC_TYPES = withSignatures({
   // ---- Einzelantrag (eService "Arbeitsentgeltzuschuss – Antrag", 6 Schritte)
   traegerbescheinigung: {
     title: "Trägerbescheinigung (BA ba042369)",
@@ -106,7 +129,7 @@ const DOC_TYPES: Record<string, DocSpec> = {
     generate: (d) => generateEmployerDatasheet(d),
     requires: (d) => Boolean(d.employer),
   },
-};
+});
 
 type DocType = keyof typeof DOC_TYPES;
 

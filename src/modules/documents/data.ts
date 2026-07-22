@@ -9,6 +9,7 @@ import {
   participants,
   signatures,
 } from "@/db/schema";
+import { findMissingSignatures } from "@/modules/signatures/requirements";
 
 // Central data collection (concept §9): everything the application
 // documents need, assembled once. Every generator and the checklist
@@ -174,6 +175,20 @@ export function evaluateApplicationReadiness(
   const hasConsent = data.consents.some(
     (c) => c.kind === "privacy_policy" && c.granted,
   );
+  // Per-form signature classification (Epic C): required signers on the real BA
+  // forms that are still unsigned, split by eIDAS level. SES gaps block (the
+  // canvas path can satisfy them); QES gaps only warn — no connected provider,
+  // so they are documented rather than faked or made an impossible blocker.
+  const missingFormSignatures = findMissingSignatures(
+    data.documents,
+    data.signatures,
+  );
+  const missingSesSignatures = missingFormSignatures.filter(
+    (s) => s.level === "SES",
+  );
+  const missingQesSignatures = missingFormSignatures.filter(
+    (s) => s.level === "QES",
+  );
 
   const checks: ReadinessCheck[] = [
     {
@@ -262,6 +277,30 @@ export function evaluateApplicationReadiness(
         : data.signatures.length > 0
           ? "warn"
           : "missing",
+    },
+    {
+      code: "form_signatures_ses",
+      label: "Signaturen der BA-Formulare (SES) vollständig",
+      severity: "blocker",
+      satisfied: missingSesSignatures.length === 0,
+      state: missingSesSignatures.length === 0 ? "ok" : "missing",
+      hint:
+        missingSesSignatures.length === 0
+          ? undefined
+          : "Unterschrift auf generierten Teilnehmerformularen ausstehend",
+    },
+    {
+      code: "form_signatures_qes_pending",
+      label: "QES-pflichtige Formulare signiert",
+      // Warning, not blocker: no QES provider is connected yet, so this cannot
+      // be satisfied without a vendor. Surfaced honestly instead of faked.
+      severity: "warning",
+      satisfied: missingQesSignatures.length === 0,
+      state: missingQesSignatures.length === 0 ? "ok" : "warn",
+      hint:
+        missingQesSignatures.length === 0
+          ? undefined
+          : "QES erforderlich — Signaturanbieter noch nicht angebunden",
     },
   ];
 

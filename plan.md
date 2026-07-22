@@ -203,7 +203,7 @@ returned by `collectApplicationData()`.
 | Analytics | 🟢 demo-ready | live SQL, fine for MVP volume |
 | Document generation | 🟡 scaffold | works; **2 of 6 real eService upload forms wired** (Trägerbescheinigung, Teilnehmerliste) against AcroForm autofill |
 | Real BA forms | 🟡 partial | 4 of 6 upload forms still unmapped; AEZ-Antrag (ba042359) obsolete via eService pivot |
-| Signatures | 🟡 SES only | QES provider (Skribble/Yousign) behind interface, not connected |
+| Signatures | 🟡 SES only | Per-form SES/QES classification centralised (Epic C); SES canvas real; QES provider (Skribble/Yousign) behind interface, not connected |
 | Channels (WhatsApp/email) | 🟡 mock | adapters exist, no real credentials |
 | Legal/consent/BA copy | 🔴 placeholder | pending legal review |
 
@@ -241,6 +241,21 @@ Goal: turn the placeholder document layer into the real "customer fills the BA f
 > **US C2** — As an admin, I want to know which signature type (SES vs QES) each form requires **so that** I don't under-sign legally sensitive docs.
 - **Acceptance:** reuse the canvas SES path for declarations; mark QES-required forms; behind the existing `SignatureProvider`.
 - **Effort:** S (SES reuse) / L (QES provider) · **Depends:** Epic B.
+- **US C2 (✅ done):** central per-DOC_TYPE signature classification in
+  `src/modules/signatures/requirements.ts` — the SINGLE source of "which form
+  needs whose signature at which eIDAS level", consumed by `DOC_TYPES`
+  (`documents/actions.ts`, `withSignatures`) and the readiness evaluator.
+  Classification: **Arbeitnehmererklärung (ba042354)** + **Fragebogen
+  (ba046157)** = participant **SES** (canvas, real, end-to-end); **Vollmacht
+  (ba051211)** = participant **QES** — legally qualified, **no provider
+  connected**, so it is marked required-but-QES and is NEVER canvas-signable
+  (not faked). `evaluateApplicationReadiness` gained two derived checks:
+  `form_signatures_ses` (**blocker** — an unsigned SES form on a generated doc
+  blocks complete/submitted) and `form_signatures_qes_pending` (**warning** —
+  QES gap surfaced honestly, cannot block without a vendor). Tests:
+  `tests/unit/signature-requirements.test.ts`.
+- **US C1 (🟡 in progress):** SES signing of the new forms via the existing
+  magic-link flow — see next commit.
 
 ### Epic D — Real channels (outbound)
 > **US D1** — As a consultant, I want WhatsApp reminders actually delivered **so that** no-shows drop.
