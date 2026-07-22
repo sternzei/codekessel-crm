@@ -2,10 +2,12 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   DOCUMENT_SIGNATURE_REQUIREMENTS,
+  canRequestCanvasSignature,
   documentRequiresSignature,
   findMissingSignatures,
   getDocumentSignatureRequirement,
   isCanvasSignableSigner,
+  pendingQesSigners,
   requiredSignersFor,
 } from "@/modules/signatures/requirements";
 import {
@@ -84,6 +86,39 @@ test("a pending (not yet signed) signature is still missing", () => {
     { documentId: "d1", signerKind: "participant", status: "pending" },
   ];
   assert.equal(findMissingSignatures(documents, signatures).length, 1);
+});
+
+// ---- Canvas (SES) request predicate ---------------------------------------
+
+test("unclassified documents keep the generic co-signing freedom", () => {
+  assert.deepEqual(canRequestCanvasSignature("cost_overview", "participant"), {
+    allowed: true,
+  });
+  assert.deepEqual(canRequestCanvasSignature("cost_overview", "employer"), {
+    allowed: true,
+  });
+});
+
+test("a classified SES form is signable only by its declared signer", () => {
+  assert.deepEqual(
+    canRequestCanvasSignature("arbeitnehmererklaerung", "participant"),
+    { allowed: true },
+  );
+  assert.deepEqual(
+    canRequestCanvasSignature("arbeitnehmererklaerung", "employer"),
+    { allowed: false, reason: "not_required_signer" },
+  );
+});
+
+test("a QES form is never canvas-signable (no faking)", () => {
+  assert.deepEqual(canRequestCanvasSignature("vollmacht", "participant"), {
+    allowed: false,
+    reason: "qes_not_available",
+  });
+  assert.deepEqual(pendingQesSigners("vollmacht"), [
+    { kind: "participant", level: "QES" },
+  ]);
+  assert.deepEqual(pendingQesSigners("fragebogen"), []);
 });
 
 // ---- Effect on evaluateApplicationReadiness -------------------------------

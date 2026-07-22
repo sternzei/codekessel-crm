@@ -7,6 +7,10 @@ import { getSession } from "@/modules/auth/session";
 import { generateDocument, requestSignature } from "@/modules/documents/actions";
 import { createApplication } from "@/modules/applications/actions";
 import { buildChecklist, collectApplicationData } from "@/modules/documents/data";
+import {
+  canRequestCanvasSignature,
+  pendingQesSigners,
+} from "@/modules/signatures/requirements";
 import { fmtDateTime } from "../../leads/[id]/labels";
 
 export const dynamic = "force-dynamic";
@@ -231,6 +235,12 @@ export default async function DocumentChecklistPage({
                     s.signerKind === kind &&
                     (s.status === "pending" || s.status === "signed"),
                 );
+              // Epic C: only offer the canvas (SES) button for signers the form
+              // actually allows; QES-required signers are marked, never offered.
+              const canRequest = (kind: "participant" | "employer") =>
+                canRequestCanvasSignature(doc.type, kind).allowed;
+              const qesPending =
+                doc.status !== "signed" && pendingQesSigners(doc.type).length > 0;
               return (
                 <div key={doc.id} className="note" style={{ display: "flex", flexDirection: "column", gap: "var(--space-2)" }}>
                   <div style={{ display: "flex", alignItems: "center", gap: "var(--space-2)" }}>
@@ -262,7 +272,7 @@ export default async function DocumentChecklistPage({
                     ) : null}
                     {doc.filePath && doc.status !== "signed" ? (
                       <>
-                        {!signerActive("participant") ? (
+                        {canRequest("participant") && !signerActive("participant") ? (
                           <form action={requestSignature}>
                             <input type="hidden" name="documentId" value={doc.id} />
                             <input type="hidden" name="participantId" value={p.id} />
@@ -273,7 +283,7 @@ export default async function DocumentChecklistPage({
                             </button>
                           </form>
                         ) : null}
-                        {doc.employerId && !signerActive("employer") ? (
+                        {doc.employerId && canRequest("employer") && !signerActive("employer") ? (
                           <form action={requestSignature}>
                             <input type="hidden" name="documentId" value={doc.id} />
                             <input type="hidden" name="participantId" value={p.id} />
@@ -283,6 +293,11 @@ export default async function DocumentChecklistPage({
                               Signatur: Arbeitgeber
                             </button>
                           </form>
+                        ) : null}
+                        {qesPending ? (
+                          <span className="badge badge--warn" title="Kein QES-Anbieter angebunden">
+                            QES erforderlich — Anbieter nicht angebunden
+                          </span>
                         ) : null}
                       </>
                     ) : null}

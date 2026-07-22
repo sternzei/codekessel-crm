@@ -69,6 +69,36 @@ export function isCanvasSignableSigner(
   return requiredSignersFor(type, "SES").some((s) => s.kind === kind);
 }
 
+export type SignatureRequestDecision =
+  | { allowed: true }
+  | { allowed: false; reason: "not_required_signer" | "qes_not_available" };
+
+/**
+ * Whether the canvas (SES) magic-link flow may request `signerKind` on a
+ * document of `type`. Unclassified documents keep the legacy generic behaviour
+ * (any participant/employer may co-sign). Classified documents restrict to the
+ * declared signers and refuse QES on the canvas — a QES-required signer has no
+ * connected provider, so offering canvas there would fake a qualified signature.
+ */
+export function canRequestCanvasSignature(
+  type: string,
+  signerKind: SignatureSignerKind,
+): SignatureRequestDecision {
+  const requirement = DOCUMENT_SIGNATURE_REQUIREMENTS[type];
+  if (!requirement) return { allowed: true };
+  const signer = requirement.signers.find((s) => s.kind === signerKind);
+  if (!signer) return { allowed: false, reason: "not_required_signer" };
+  if (signer.level !== "SES") {
+    return { allowed: false, reason: "qes_not_available" };
+  }
+  return { allowed: true };
+}
+
+/** QES-required signers still pending a connected provider, for UI marking. */
+export function pendingQesSigners(type: string): RequiredSigner[] {
+  return requiredSignersFor(type, "QES");
+}
+
 export type DocumentLike = { id: string; type: string };
 
 export type SignatureRecordLike = {

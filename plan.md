@@ -254,8 +254,18 @@ Goal: turn the placeholder document layer into the real "customer fills the BA f
   blocks complete/submitted) and `form_signatures_qes_pending` (**warning** —
   QES gap surfaced honestly, cannot block without a vendor). Tests:
   `tests/unit/signature-requirements.test.ts`.
-- **US C1 (🟡 in progress):** SES signing of the new forms via the existing
-  magic-link flow — see next commit.
+- **US C1 (✅ SES done / QES marked):** the new SES forms (Arbeitnehmererklärung,
+  Fragebogen) are signable through the EXISTING external flow — the same
+  `requestSignature` action, `signature`-entity routing rules (participant/
+  employer magic-link, reminders + escalation), `/t/[token]` canvas page, and
+  `finalizeIfComplete()` (stamp + audit certificate). No new signing mechanism.
+  `requestSignature` now consults the classification (`canRequestCanvasSignature`)
+  so a classified form can only be requested for its declared signer and a QES
+  signer is refused on the canvas (no fake QES); the F1/F2 hardening (task-status
+  gate, atomic burn, single live credential) is untouched. The documents page
+  hides non-declared signer buttons and marks QES forms
+  "QES erforderlich — Anbieter nicht angebunden". QES (Vollmacht) awaits a
+  connected provider. Tests extended in `tests/unit/signature-requirements.test.ts`.
 
 ### Epic D — Real channels (outbound)
 > **US D1** — As a consultant, I want WhatsApp reminders actually delivered **so that** no-shows drop.

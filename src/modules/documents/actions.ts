@@ -11,6 +11,7 @@ import { getSession } from "@/modules/auth/session";
 import { processTransition } from "@/modules/routing/engine";
 import { canRequestSigner } from "@/modules/signatures/progress";
 import {
+  canRequestCanvasSignature,
   getDocumentSignatureRequirement,
   type DocumentSignatureRequirement,
 } from "@/modules/signatures/requirements";
@@ -224,6 +225,11 @@ export async function requestSignature(formData: FormData): Promise<void> {
     if (!doc || !doc.filePath) return;
     // Nothing left to request once the document is fully signed.
     if (doc.status === "signed") return;
+
+    // Epic C: a classified form may only be signed by its declared signer, and
+    // a QES-required signer can never go through the canvas (SES) path — no
+    // provider is connected, so we refuse rather than fake a qualified signature.
+    if (!canRequestCanvasSignature(doc.type, signerKind).allowed) return;
 
     const signerParticipantId =
       signerKind === "participant" ? doc.participantId : null;
