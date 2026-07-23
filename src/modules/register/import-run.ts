@@ -1,6 +1,7 @@
 import { eq } from "drizzle-orm";
 import type { DbHandle } from "@/db/client";
 import { importRuns } from "@/db/schema";
+import type { FinancialsSource } from "./types";
 
 // How a re-import treated the lead. `inserted` = brand-new lead; `updated` =
 // an existing lead had empty register-derived fields filled in; `skipped` =
@@ -26,7 +27,46 @@ export type ImportRunCriteria = {
   profitEur: number | null;
   fiscalYear: string | null;
   employees: number | null;
+  // Provenance of the loss figure carried from discovery — persisted on the
+  // lead alongside the structured columns (see buildFinancialColumns).
+  financialsSource: FinancialsSource | null;
 };
+
+// The structured financial columns persisted on the imported lead
+// (participants.net_income / financial_year / financials_source). numeric is
+// passed to Drizzle as a string, so net_income stays exact and sign-safe.
+export type FinancialColumns = {
+  netIncome: string | null;
+  financialYear: number | null;
+  financialsSource: FinancialsSource | null;
+};
+
+/**
+ * Parses the 4-digit reporting year out of the discovery `fiscalYear` string
+ * (e.g. "2024" or "2024-12-31") into an integer, or null when absent/invalid.
+ */
+export function parseFinancialYear(fiscalYear: string | null): number | null {
+  if (!fiscalYear) return null;
+  const year = Number.parseInt(fiscalYear.slice(0, 4), 10);
+  return Number.isInteger(year) ? year : null;
+}
+
+/**
+ * Maps the discovery financial signal onto the persisted columns (pure). A
+ * missing net income stays null — NEVER coerced to 0 — mirroring
+ * extractSearchFinancials; the sign is preserved by stringifying as-is.
+ */
+export function buildFinancialColumns(criteria: {
+  profitEur: number | null;
+  fiscalYear: string | null;
+  financialsSource: FinancialsSource | null;
+}): FinancialColumns {
+  return {
+    netIncome: criteria.profitEur != null ? String(criteria.profitEur) : null,
+    financialYear: parseFinancialYear(criteria.fiscalYear),
+    financialsSource: criteria.financialsSource,
+  };
+}
 
 // Criteria for a multi-company batch run: the discovery filters that produced
 // the page plus the number of companies discovered/attempted.

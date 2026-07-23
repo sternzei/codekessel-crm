@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import {
   date,
   index,
+  integer,
   jsonb,
   numeric,
   pgTable,
@@ -60,6 +61,19 @@ export const participants = pgTable(
     phoneNormalized: text("phone_normalized"),
     // The import batch that created this lead, if any.
     importRunId: uuid("import_run_id").references(() => importRuns.id),
+
+    // --- Structured financial provenance for register-imported leads (F.3).
+    // The discovery signal that made this company a target (financial loss) is
+    // now persisted as real columns in ADDITION to the human-readable
+    // eligibility_notes text. All nullable and additive; they inherit the
+    // participants RLS policy (same table), so no new policy is needed.
+    // `net_income` keeps its sign (a loss is negative) and is NEVER coerced to
+    // 0 — a missing figure stays null (see modules/register/openregister.ts).
+    netIncome: numeric("net_income", { precision: 14, scale: 2 }),
+    financialYear: integer("financial_year"),
+    // Where the figure was read from + its unit origin ("indicators" cents |
+    // "search_row" euros); mirrors the FinancialsSource union. null = no figure.
+    financialsSource: text("financials_source"),
 
     employerId: uuid("employer_id").references(() => employers.id),
     measureId: uuid("measure_id").references(() => measures.id),

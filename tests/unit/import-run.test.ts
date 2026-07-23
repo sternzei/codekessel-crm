@@ -1,8 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
+  buildFinancialColumns,
   emptyBatchStats,
   emptyStats,
+  parseFinancialYear,
   tallyBatch,
   tallyOutcome,
   type BatchItemResult,
@@ -85,6 +87,69 @@ test("tallyBatch counts each real outcome and never inflates inserted", () => {
 
 test("tallyBatch of an empty batch discovers nothing", () => {
   assert.deepEqual(tallyBatch([]), emptyBatchStats());
+});
+
+// --- Structured financial provenance: discovery signal → persisted columns --
+// These pin the parse→persist mapping the imported lead depends on: a missing
+// figure stays null (NEVER coerced to 0) and the sign of a loss is preserved.
+
+test("parseFinancialYear reads the 4-digit year from a plain year or a date", () => {
+  assert.equal(parseFinancialYear("2024"), 2024);
+  assert.equal(parseFinancialYear("2024-12-31"), 2024);
+});
+
+test("parseFinancialYear returns null for absent or non-numeric input", () => {
+  assert.equal(parseFinancialYear(null), null);
+  assert.equal(parseFinancialYear(""), null);
+  assert.equal(parseFinancialYear("n/a"), null);
+});
+
+test("buildFinancialColumns maps a loss to a sign-safe numeric string", () => {
+  const columns = buildFinancialColumns({
+    profitEur: -84_000,
+    fiscalYear: "2024",
+    financialsSource: "search_row",
+  });
+  assert.deepEqual(columns, {
+    netIncome: "-84000",
+    financialYear: 2024,
+    financialsSource: "search_row",
+  });
+});
+
+test("buildFinancialColumns keeps a missing net income null — never coerced to 0", () => {
+  const columns = buildFinancialColumns({
+    profitEur: null,
+    fiscalYear: "2023-12-31",
+    financialsSource: "indicators",
+  });
+  assert.equal(columns.netIncome, null);
+  assert.notEqual(columns.netIncome, "0");
+  assert.equal(columns.financialYear, 2023);
+  assert.equal(columns.financialsSource, "indicators");
+});
+
+test("buildFinancialColumns preserves a genuine break-even 0 (not null)", () => {
+  const columns = buildFinancialColumns({
+    profitEur: 0,
+    fiscalYear: null,
+    financialsSource: "indicators",
+  });
+  assert.equal(columns.netIncome, "0");
+  assert.equal(columns.financialYear, null);
+});
+
+test("buildFinancialColumns with no signal at all persists all-null provenance", () => {
+  const columns = buildFinancialColumns({
+    profitEur: null,
+    fiscalYear: null,
+    financialsSource: null,
+  });
+  assert.deepEqual(columns, {
+    netIncome: null,
+    financialYear: null,
+    financialsSource: null,
+  });
 });
 
 test("tally accumulates onto a provided base without mutating it", () => {

@@ -144,19 +144,29 @@ What is persisted about an imported record:
   email/phone land on `contactEmail` / `contactPhone`.
 - **Participant** (`participants`): `source = "openregister"`, `register_id`
   (dedup key), and `import_run_id` — set on the **created or updated** lead only
-  (never on `skipped` / `conflicted`).
+  (never on `skipped` / `conflicted`). The discovery loss signal is now also
+  persisted as **structured columns** — `net_income` (`numeric(14,2)`,
+  sign-safe, nullable), `financial_year` (`integer`), and `financials_source`
+  (`text`: `indicators` | `search_row`) — mapped from the discovery criteria by
+  the pure `buildFinancialColumns()` (`src/modules/register/import-run.ts`) and
+  written in `insertLead` / gap-filled in `refreshExistingLead`
+  (`src/modules/register/actions.ts`). A missing figure stays `null` (**never
+  coerced to 0**); a genuine break-even `0` is preserved. These columns are
+  additive to — not a replacement for — the human-readable
+  `eligibility_notes` text, and are surfaced read-only on the lead detail page
+  (`src/app/(internal)/leads/[id]/page.tsx`).
 - **Import run** (`import_runs`): `source`, `status`, `criteria` (jsonb),
   `stats` (jsonb), `started_by_user_id`, `started_at`, `finished_at`, `error`
   (see §5).
 
 ### Provenance gaps (honest)
 
-- **`financialsSource` is not persisted.** It exists as a discovery-time field
-  on the `RegisterDistressedCompany` DTO and is shown in the import UI, but is
-  **not** written to any column. The numeric loss figures are stored only as
-  human-readable German text in `participants.eligibility_notes` (via
-  `buildLossNote()`), not as structured `profit` / `revenue` / `fiscal_year`
-  columns.
+- **Structured financials are now persisted (gap closed).** `financials_source`
+  plus the loss figure (`net_income`) and reporting year (`financial_year`) are
+  written to real, nullable `participants` columns at import (see above), in
+  addition to the human-readable `eligibility_notes` text. Revenue is still not
+  stored as a structured column (the free-text note remains the only place a
+  revenue figure appears); no per-field confidence is modelled.
 - **Imported leads have no participant phone.** The company phone is stored on
   the employer; `participants.phone` / `participants.phone_normalized` are left
   null at import. `phone_normalized` (see `src/modules/participants/phone.ts`)

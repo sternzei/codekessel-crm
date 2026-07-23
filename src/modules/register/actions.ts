@@ -8,8 +8,13 @@ import { withTenant, type Tx } from "@/db/client";
 import { employers, participants } from "@/db/schema";
 import { logActivity } from "@/modules/audit/log";
 import { getAdminSession, getSession } from "@/modules/auth/session";
-import { getRegisterProvider, type RegisterCompanyDetail } from "@/modules/register";
 import {
+  getRegisterProvider,
+  type FinancialsSource,
+  type RegisterCompanyDetail,
+} from "@/modules/register";
+import {
+  buildFinancialColumns,
   completeImportRun,
   recordFailedRun,
   startImportRun,
@@ -17,6 +22,7 @@ import {
   tallyOutcome,
   type BatchImportRunCriteria,
   type BatchItemResult,
+  type FinancialColumns,
   type ImportOutcome,
   type ImportRunCriteria,
 } from "./import-run";
@@ -43,6 +49,14 @@ const numOrNull = (v: FormDataEntryValue | null): number | null => {
 const strOrNull = (v: FormDataEntryValue | null): string | null => {
   const s = v == null ? "" : String(v).trim();
   return s || null;
+};
+// Only accept the known provenance tokens; anything else (incl. "") → null so
+// a malformed hidden field can never persist a bogus source.
+const financialsSourceOrNull = (
+  v: FormDataEntryValue | null,
+): FinancialsSource | null => {
+  const s = strOrNull(v);
+  return s === "indicators" || s === "search_row" ? s : null;
 };
 
 /** Human-readable "why we're calling" note stamped onto the imported lead. */
@@ -86,6 +100,7 @@ export async function importCompany(formData: FormData): Promise<void> {
     profitEur: numOrNull(formData.get("profitEur")),
     fiscalYear: strOrNull(formData.get("fiscalYear")),
     employees: numOrNull(formData.get("employees")),
+    financialsSource: financialsSourceOrNull(formData.get("financialsSource")),
   };
 
   const result = await runImport(admin, criteria);
@@ -112,11 +127,13 @@ export async function importCompanies(formData: FormData): Promise<void> {
   const profits = formData.getAll("profitEur");
   const fiscalYears = formData.getAll("fiscalYear");
   const employeesList = formData.getAll("employees");
+  const financialsSources = formData.getAll("financialsSource");
   const items = companyIds.map((companyId, i) => ({
     companyId,
     profitEur: numOrNull(profits[i] ?? null),
     fiscalYear: strOrNull(fiscalYears[i] ?? null),
     employees: numOrNull(employeesList[i] ?? null),
+    financialsSource: financialsSourceOrNull(financialsSources[i] ?? null),
   }));
 
   const batchCriteria: BatchImportRunCriteria = {
@@ -139,6 +156,7 @@ type BatchItem = {
   profitEur: number | null;
   fiscalYear: string | null;
   employees: number | null;
+  financialsSource: FinancialsSource | null;
 };
 
 /**
@@ -168,6 +186,7 @@ async function runBatchImport(
       profitEur: item.profitEur,
       fiscalYear: item.fiscalYear,
       employees: item.employees,
+      financialsSource: item.financialsSource,
     };
     try {
       const company = await getRegisterProvider().getCompany(item.companyId);
@@ -317,6 +336,8 @@ async function applyCompanyToRun(
     criteria.fiscalYear,
     criteria.employees,
   );
+  // Structured financial provenance persisted alongside the free-text note.
+  const financialColumns = buildFinancialColumns(criteria);
 
   const [existingLead] = await tx
     .select({
@@ -324,6 +345,9 @@ async function applyCompanyToRun(
       employerId: participants.employerId,
       city: participants.city,
       eligibilityNotes: participants.eligibilityNotes,
+      netIncome: participants.netIncome,
+      financialYear: participants.financialYear,
+      financialsSource: participants.financialsSource,
     })
     .from(participants)
     .where(
@@ -339,6 +363,7 @@ async function applyCompanyToRun(
         employerId,
         city,
         lossNote,
+        financialColumns,
         registerId: company.companyId,
         importRunId: runId,
       })
@@ -347,6 +372,7 @@ async function applyCompanyToRun(
         lastName,
         city,
         lossNote,
+        financialColumns,
         registerId: company.companyId,
         employerId,
         importRunId: runId,
@@ -370,6 +396,7 @@ async function insertLead(
     lastName: string;
     city: string | null;
     lossNote: string;
+    financialColumns: FinancialColumns;
     registerId: string;
     employerId: string;
     importRunId: string;
@@ -389,6 +416,11 @@ async function insertLead(
       employerId: args.employerId,
       importRunId: args.importRunId,
       eligibilityNotes: args.lossNote,
+      // Structured provenance mirrored from the discovery signal (missing
+      // figures stay null — never coerced to 0; see buildFinancialColumns).
+      netIncome: args.financialColumns.netIncome,
+      financialYear: args.financialColumns.financialYear,
+      financialsSource: args.financialColumns.financialsSource,
       // Left unassigned on purpose — triaged from the pipeline board.
     })
     .onConflictDoNothing({
@@ -482,6 +514,9 @@ type ExistingLead = {
   employerId: string | null;
   city: string | null;
   eligibilityNotes: string | null;
+  netIncome: string | null;
+  financialYear: number | null;
+  financialsSource: string | null;
 };
 
 /**
@@ -498,12 +533,20 @@ async function refreshExistingLead(
     employerId: string;
     city: string | null;
     lossNote: string;
+    financialColumns: FinancialColumns;
     registerId: string;
     importRunId: string;
   },
 ): Promise<ImportOutcome> {
-  const { existingLead, employerId, city, lossNote, registerId, importRunId } =
-    args;
+  const {
+    existingLead,
+    employerId,
+    city,
+    lossNote,
+    financialColumns,
+    registerId,
+    importRunId,
+  } = args;
 
   if (existingLead.employerId && existingLead.employerId !== employerId) {
     await logActivity(tx, {
@@ -522,6 +565,25 @@ async function refreshExistingLead(
   if (existingLead.employerId == null) patch.employerId = employerId;
   if (existingLead.city == null && city) patch.city = city;
   if (existingLead.eligibilityNotes == null) patch.eligibilityNotes = lossNote;
+  // Conservative gap-fill of the structured provenance: only set a column that
+  // is still empty AND for which discovery actually carried a figure, so a
+  // re-import never clobbers a corrected value nor overwrites a real figure
+  // with null.
+  if (existingLead.netIncome == null && financialColumns.netIncome != null) {
+    patch.netIncome = financialColumns.netIncome;
+  }
+  if (
+    existingLead.financialYear == null &&
+    financialColumns.financialYear != null
+  ) {
+    patch.financialYear = financialColumns.financialYear;
+  }
+  if (
+    existingLead.financialsSource == null &&
+    financialColumns.financialsSource != null
+  ) {
+    patch.financialsSource = financialColumns.financialsSource;
+  }
 
   // A genuine gap-fill is required for `updated`; the empty-patch check MUST
   // run before stamping import_run_id, otherwise every re-import would look

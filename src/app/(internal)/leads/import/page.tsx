@@ -229,6 +229,11 @@ async function Results({
               <input type="hidden" name="profitEur" value={c.profitEur ?? ""} />
               <input type="hidden" name="fiscalYear" value={c.fiscalYear ?? ""} />
               <input type="hidden" name="employees" value={c.employees ?? ""} />
+              <input
+                type="hidden"
+                name="financialsSource"
+                value={c.financialsSource ?? ""}
+              />
             </div>
           ))}
           <button type="submit" className="button button--sm">
@@ -271,6 +276,11 @@ async function Results({
                 <input type="hidden" name="profitEur" value={c.profitEur ?? ""} />
                 <input type="hidden" name="fiscalYear" value={c.fiscalYear ?? ""} />
                 <input type="hidden" name="employees" value={c.employees ?? ""} />
+                <input
+                  type="hidden"
+                  name="financialsSource"
+                  value={c.financialsSource ?? ""}
+                />
                 <button
                   type="submit"
                   className="button button--sm button--ghost"

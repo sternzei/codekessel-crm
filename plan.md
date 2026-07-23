@@ -324,8 +324,19 @@ Goal: turn the placeholder document layer into the real "customer fills the BA f
   now writes ONE `import_runs` row with real stats
   `{discovered, inserted, updated, skipped, conflicted, failed}` (`tallyBatch`,
   `importCompanies`). Tests: `register-filters.test.ts`, batch cases in
-  `import-run.test.ts`. Still open: industry filter; persisting `financialsSource`
-  + structured financial columns (provenance gap, §3).
+  `import-run.test.ts`.
+  - **Structured financial provenance** (✅): the discovery loss signal is now
+    persisted as real `participants` columns — `net_income`
+    (`numeric(14,2)`, sign-safe, nullable), `financial_year` (`integer`),
+    `financials_source` (`text`) — via migration `0009_financial_provenance`
+    and the pure `buildFinancialColumns()` (`register/import-run.ts`), written
+    on insert and conservatively gap-filled on re-import (`register/actions.ts`)
+    in ADDITION to the free-text `eligibility_notes`. A missing figure stays
+    null (never coerced to 0); a genuine break-even 0 is preserved. Carried
+    from the import UI hidden fields and surfaced read-only on the lead detail
+    page. Tests: parse→persist mapping in `import-run.test.ts`. Docs:
+    `REGISTER-IMPORT.md` §3 (provenance gap closed).
+  - Still open: industry/NACE (Branche) discovery filter.
 - **F.4 WhatsApp phases** (⬜): execute §0d — provision, Meta-approved templates,
   webhooks for receipts/inbound, link buttons. Adapter + consent already exist.
 - **F.5 Import run-history + E2E for this cycle** (✅): the pipeline page now

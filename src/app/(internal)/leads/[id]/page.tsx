@@ -133,6 +133,7 @@ export default async function LeadDetailPage({
 
           <section className="section" aria-label="Fördervoraussetzungen">
             <h2>Fördervoraussetzungen</h2>
+            <RegisterFinancials participant={p} />
             <form
               action={updateEligibility}
               style={{ display: "flex", flexDirection: "column", gap: "var(--space-3)" }}
@@ -394,6 +395,45 @@ export default async function LeadDetailPage({
         </div>
       </div>
     </>
+  );
+}
+
+const FINANCIALS_SOURCE_LABEL: Record<string, string> = {
+  indicators: "Kennzahlen (Register)",
+  search_row: "Suchergebnis (Register)",
+};
+
+/**
+ * Read-only structured financial provenance carried over from the OpenRegister
+ * import (net income / reporting year / source). Renders nothing when the lead
+ * has no persisted figures — a missing value is shown as "—", never as 0.
+ */
+function RegisterFinancials({
+  participant: p,
+}: {
+  participant: LeadDetail["participant"];
+}) {
+  const hasFinancials =
+    p.netIncome != null ||
+    p.financialYear != null ||
+    p.financialsSource != null;
+  if (!hasFinancials) return null;
+  const netIncomeText =
+    p.netIncome != null
+      ? `${Math.round(Number(p.netIncome)).toLocaleString("de-DE")} €`
+      : "—";
+  const sourceText = p.financialsSource
+    ? (FINANCIALS_SOURCE_LABEL[p.financialsSource] ?? p.financialsSource)
+    : null;
+  return (
+    <p
+      className="meta"
+      style={{ display: "block", marginBottom: "var(--space-3)" }}
+    >
+      Register-Finanzdaten: Jahresergebnis {netIncomeText}
+      {p.financialYear != null ? ` · GJ ${p.financialYear}` : ""}
+      {sourceText ? ` · Quelle: ${sourceText}` : ""}
+    </p>
   );
 }
 
