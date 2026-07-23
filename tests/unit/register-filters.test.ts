@@ -4,6 +4,7 @@ import {
   DEFAULT_FEDERAL_STATE,
   applyDiscoveryFilters,
   matchesFederalState,
+  matchesIndustry,
   matchesLegalForm,
 } from "@/modules/register/filters";
 import type { RegisterDistressedCompany } from "@/modules/register/types";
@@ -22,6 +23,7 @@ function company(
     city: "Stuttgart",
     postalCode: "70173",
     legalForm: "gmbh",
+    industryCode: "86.10.0",
     profitEur: -1000,
     revenueEur: 100000,
     fiscalYear: "2024",
@@ -63,6 +65,19 @@ test("matchesLegalForm is case-insensitive and empty = all", () => {
   assert.equal(matchesLegalForm(null, ["gmbh"]), false);
 });
 
+test("matchesIndustry keeps sub-classes of a selected division prefix", () => {
+  assert.equal(matchesIndustry("86.10.0", ["86"]), true); // Gesundheitswesen
+  assert.equal(matchesIndustry("86.90.9", ["86"]), true);
+  assert.equal(matchesIndustry("81.21.0", ["86", "81"]), true);
+  assert.equal(matchesIndustry("41.20.0", ["86"]), false); // Hochbau, not health
+});
+
+test("matchesIndustry: empty selection = all, missing code excluded", () => {
+  assert.equal(matchesIndustry("41.20.0", []), true);
+  assert.equal(matchesIndustry(null, []), true);
+  assert.equal(matchesIndustry(null, ["86"]), false);
+});
+
 test("applyDiscoveryFilters narrows by region and legal form together", () => {
   const companies = [
     company({ companyId: "bw-gmbh", postalCode: "70173", legalForm: "gmbh" }),
@@ -74,6 +89,17 @@ test("applyDiscoveryFilters narrows by region and legal form together", () => {
     legalForms: ["gmbh"],
   });
   assert.deepEqual(out.map((c) => c.companyId), ["bw-gmbh"]);
+});
+
+test("applyDiscoveryFilters narrows by industry alongside region + legal form", () => {
+  const companies = [
+    company({ companyId: "health", industryCode: "86.10.0" }),
+    company({ companyId: "cleaning", industryCode: "81.21.0" }),
+    company({ companyId: "construction", industryCode: "41.20.0" }),
+    company({ companyId: "no-branche", industryCode: null }),
+  ];
+  const out = applyDiscoveryFilters(companies, { industryCodes: ["86", "81"] });
+  assert.deepEqual(out.map((c) => c.companyId), ["health", "cleaning"]);
 });
 
 test("applyDiscoveryFilters with no criteria keeps everything", () => {

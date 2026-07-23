@@ -106,6 +106,7 @@ export class MockRegisterProvider implements RegisterProvider {
       city: c.address.city,
       postalCode: c.address.postalCode,
       legalForm: c.legalForm,
+      industryCode: c.industryCode,
       profitEur: i === 0 ? -84_000 : i === 1 ? -21_500 : -45_000,
       revenueEur: i === 0 ? 1_250_000 : i === 1 ? 430_000 : 780_000,
       fiscalYear: "2024",

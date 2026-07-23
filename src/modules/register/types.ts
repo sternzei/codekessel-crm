@@ -60,11 +60,15 @@ export type DistressedCriteria = {
   page: number;
   perPage: number;
   // Optional discovery narrowing. OpenRegister exposes no confirmed server-side
-  // filter for federal state or legal form, so these are applied CLIENT-SIDE
-  // after the fetch (see register/filters.ts). An empty federalState ("") means
-  // "all regions"; an empty legalForms array means "all legal forms".
+  // filter for federal state, legal form, or industry, so these are all applied
+  // CLIENT-SIDE after the fetch (see register/filters.ts). An empty
+  // federalState ("") means "all regions"; an empty legalForms array means "all
+  // legal forms"; an empty industryCodes array means "all industries".
   federalState?: string;
   legalForms?: string[];
+  // NACE/WZ (Branche) division prefixes to keep, matched against the company's
+  // best-effort industry code by leading digits (e.g. "86" keeps "86.10.0").
+  industryCodes?: string[];
 };
 
 // Where a company's figures were read from — also records their original
@@ -82,6 +86,9 @@ export type RegisterDistressedCompany = {
   // filtering (PLZ prefix). May be null when the search row omits an address.
   postalCode: string | null;
   legalForm: string | null;
+  // Best-effort NACE/WZ code from the search payload — used for client-side
+  // industry (Branche) filtering. May be null when the row omits it.
+  industryCode: string | null;
   // Best-effort from the search payload — may be absent even though the
   // server-side net_income<0 filter guarantees the company is loss-making.
   // A loss is a negative profit; missing figures stay null (never 0).

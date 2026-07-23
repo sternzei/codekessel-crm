@@ -133,6 +133,10 @@ const searchResponseSchema = z.object({
           revenue: z.number().nullish(),
           fiscal_year: z.union([z.string(), z.number()]).nullish(),
           employees: z.number().nullish(),
+          // Best-effort industry codes, same shape as the company detail's
+          // confirmed `industry_codes`. Read leniently (nullish) for
+          // client-side Branche filtering; absent on rows that omit it.
+          industry_codes: z.record(z.string(), z.unknown()).nullish(),
         })
         .passthrough(),
     )
@@ -404,6 +408,7 @@ export class OpenRegisterProvider implements RegisterProvider {
         city: r.address?.city ?? null,
         postalCode: r.address?.postal_code ?? null,
         legalForm: r.legal_form ?? null,
+        industryCode: firstIndustryCode(r.industry_codes),
         ...fin,
       };
     });

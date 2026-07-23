@@ -7,6 +7,7 @@ import { importCompanies, importCompany } from "@/modules/register/actions";
 import {
   DEFAULT_FEDERAL_STATE,
   FEDERAL_STATE_LABELS,
+  INDUSTRY_OPTIONS,
   LEGAL_FORM_OPTIONS,
 } from "@/modules/register/filters";
 import { listImportedRegisterIds } from "@/modules/register/queries";
@@ -34,6 +35,7 @@ function buildDiscoveryQuery(params: {
   employeesMax: number;
   federalState: string;
   legalForms: string[];
+  industryCodes: string[];
   page: number;
 }): string {
   const qs = new URLSearchParams();
@@ -43,6 +45,7 @@ function buildDiscoveryQuery(params: {
   qs.set("federalState", params.federalState);
   qs.set("page", String(params.page));
   for (const form of params.legalForms) qs.append("legalForms", form);
+  for (const code of params.industryCodes) qs.append("industryCodes", code);
   return `/leads/import?${qs.toString()}`;
 }
 
@@ -57,6 +60,7 @@ export default async function RegisterImportPage({
     run?: string;
     federalState?: string;
     legalForms?: string | string[];
+    industryCodes?: string | string[];
   }>;
 }) {
   // Admin-only: enforced here AND in the import action.
@@ -76,6 +80,7 @@ export default async function RegisterImportPage({
   // admin explicitly chooses another (or "Alle Bundesländer" → empty string).
   const federalState = sp.federalState ?? DEFAULT_FEDERAL_STATE;
   const legalForms = toArray(sp.legalForms);
+  const industryCodes = toArray(sp.industryCodes);
 
   return (
     <>
@@ -144,6 +149,25 @@ export default async function RegisterImportPage({
               ))}
             </div>
           </fieldset>
+          <fieldset className="field" style={{ border: 0, padding: 0, margin: 0 }}>
+            <legend style={{ fontSize: "var(--text-sm)" }}>Branche</legend>
+            <div className="quick-actions" style={{ gap: "var(--space-2)" }}>
+              {INDUSTRY_OPTIONS.map((industry) => (
+                <label
+                  key={industry.value}
+                  style={{ display: "inline-flex", gap: "var(--space-1)", alignItems: "center" }}
+                >
+                  <input
+                    type="checkbox"
+                    name="industryCodes"
+                    value={industry.value}
+                    defaultChecked={industryCodes.includes(industry.value)}
+                  />
+                  {industry.label}
+                </label>
+              ))}
+            </div>
+          </fieldset>
           <button type="submit" className="button button--sm">
             Verlust-Unternehmen suchen
           </button>
@@ -163,6 +187,7 @@ export default async function RegisterImportPage({
           employeesMax={employeesMax}
           federalState={federalState}
           legalForms={legalForms}
+          industryCodes={industryCodes}
           page={page}
         />
       ) : null}
@@ -176,6 +201,7 @@ async function Results({
   employeesMax,
   federalState,
   legalForms,
+  industryCodes,
   page,
 }: {
   tenantId: string;
@@ -183,6 +209,7 @@ async function Results({
   employeesMax: number;
   federalState: string;
   legalForms: string[];
+  industryCodes: string[];
   page: number;
 }) {
   const provider = getRegisterProvider();
@@ -191,6 +218,7 @@ async function Results({
     employeesMax,
     federalState,
     legalForms,
+    industryCodes,
     page,
     perPage: PER_PAGE,
   });
@@ -203,7 +231,14 @@ async function Results({
   );
 
   const qs = (p: number) =>
-    buildDiscoveryQuery({ employeesMin, employeesMax, federalState, legalForms, page: p });
+    buildDiscoveryQuery({
+      employeesMin,
+      employeesMax,
+      federalState,
+      legalForms,
+      industryCodes,
+      page: p,
+    });
   const importableCompanies = result.companies.filter(
     (c) => !importedIds.has(c.companyId),
   );

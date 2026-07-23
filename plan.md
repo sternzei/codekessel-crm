@@ -336,7 +336,16 @@ Goal: turn the placeholder document layer into the real "customer fills the BA f
     from the import UI hidden fields and surfaced read-only on the lead detail
     page. Tests: parse→persist mapping in `import-run.test.ts`. Docs:
     `REGISTER-IMPORT.md` §3 (provenance gap closed).
-  - Still open: industry/NACE (Branche) discovery filter.
+  - **Industry/NACE (Branche) discovery filter** (✅): optional `industryCodes`
+    added to `DistressedCriteria` and the import UI (checkbox list from the
+    configurable `INDUSTRY_OPTIONS`). Applied CLIENT-SIDE after fetch in
+    `applyDiscoveryFilters` via `matchesIndustry` (leading-digit division-prefix
+    match, e.g. "86" keeps "86.10.0"), consistently with the region/legal-form
+    filters — OpenRegister exposes no confirmed server-side industry filter, so
+    the company's best-effort `industryCode` is read leniently from the search
+    row (mirrors the confirmed company-detail `industry_codes`) and the mock
+    surfaces it from the fixtures. A company without a code is excluded when a
+    specific Branche is selected. Tests: `register-filters.test.ts`.
 - **F.4 WhatsApp phases** (⬜): execute §0d — provision, Meta-approved templates,
   webhooks for receipts/inbound, link buttons. Adapter + consent already exist.
 - **F.5 Import run-history + E2E for this cycle** (✅): the pipeline page now

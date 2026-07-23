@@ -83,6 +83,21 @@ export const LEGAL_FORM_OPTIONS: readonly { value: string; label: string }[] = [
   { value: "ev", label: "e.V." },
 ];
 
+// Industry (Branche) options offered in the import UI, keyed by the leading
+// NACE/WZ **division** digits, matched by prefix against the company's
+// best-effort industry code (e.g. selecting "86" keeps "86.10.0"). Configurable
+// list, not hard-coded at the call sites; extend as new target sectors appear.
+export const INDUSTRY_OPTIONS: readonly { value: string; label: string }[] = [
+  { value: "86", label: "Gesundheitswesen" },
+  { value: "87", label: "Pflege-/Wohnheime" },
+  { value: "88", label: "Sozialwesen (ohne Heime)" },
+  { value: "41", label: "Hochbau" },
+  { value: "43", label: "Vorbereitende Baustellenarbeiten / Ausbau" },
+  { value: "49", label: "Landverkehr / Logistik" },
+  { value: "56", label: "Gastronomie" },
+  { value: "81", label: "Gebäudebetreuung / Reinigung" },
+];
+
 /**
  * True when a company's postal code falls in the selected federal state. An
  * empty/absent state means "all regions" (always true). A state with no
@@ -117,18 +132,41 @@ export function matchesLegalForm(
 }
 
 /**
- * Narrows a fetched discovery page by the optional federal-state + legal-form
- * criteria. Pure — no network — so both providers and the UI share one rule.
+ * True when a company's industry falls under one of the selected NACE/WZ
+ * division prefixes. An empty selection means "all industries". A company with
+ * no industry code is excluded when a specific selection is active. Matching is
+ * by leading digits, so a 2-digit division ("86") keeps any sub-class
+ * ("86.10.0", "86.90.9") beneath it.
+ */
+export function matchesIndustry(
+  industryCode: string | null,
+  allowed: readonly string[],
+): boolean {
+  if (!allowed || allowed.length === 0) return true;
+  if (!industryCode) return false;
+  const code = industryCode.trim();
+  return allowed.some((prefix) => code.startsWith(prefix.trim()));
+}
+
+/**
+ * Narrows a fetched discovery page by the optional federal-state, legal-form,
+ * and industry criteria. Pure — no network — so both providers and the UI share
+ * one rule.
  */
 export function applyDiscoveryFilters(
   companies: readonly RegisterDistressedCompany[],
-  criteria: Pick<DistressedCriteria, "federalState" | "legalForms">,
+  criteria: Pick<
+    DistressedCriteria,
+    "federalState" | "legalForms" | "industryCodes"
+  >,
 ): RegisterDistressedCompany[] {
   const federalState = criteria.federalState ?? ALL_FEDERAL_STATES;
   const legalForms = criteria.legalForms ?? [];
+  const industryCodes = criteria.industryCodes ?? [];
   return companies.filter(
     (c) =>
       matchesFederalState(c.postalCode, federalState) &&
-      matchesLegalForm(c.legalForm, legalForms),
+      matchesLegalForm(c.legalForm, legalForms) &&
+      matchesIndustry(c.industryCode, industryCodes),
   );
 }
