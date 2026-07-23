@@ -17,6 +17,10 @@ export type OutboundMessage = {
   body: string;
   templateKey: string;
   taskId?: string;
+  // Raw interpolation variables (firstName, title, link, …). Carried so the
+  // WhatsApp adapter can fill an HSM template's ordered params; the text/email
+  // paths ignore it and use the already-rendered body.
+  variables?: Record<string, string>;
 };
 
 export type SendResult = { ok: true } | { ok: false; error: string };

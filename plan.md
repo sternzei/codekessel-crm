@@ -101,10 +101,21 @@ consent is modelled and enforced in live mode. Phased plan:
 1. **Provision** a WhatsApp Business Account + phone number; set
    `WHATSAPP_ACCESS_TOKEN` + `WHATSAPP_PHONE_NUMBER_ID` (flips `resolveAdapterMode`
    to `live`).
-2. **Templates**: map each app `task_<type>` / `reminder_<type>` message to a
-   Meta-approved **template (HSM)**. Business-initiated messages outside the
-   24-hour customer-service window *require* approved templates — the current
-   adapter sends free-form `text`, which only works inside an open 24h session.
+2. **Templates** (✅ payload support shipped): the `WhatsAppCloudAdapter` now
+   sends `type:"template"` (HSM) IN ADDITION to the free-form `text` path.
+   Business-initiated messages outside the 24-hour window *require* approved
+   templates. App `task_<type>` / `reminder_<type>` keys map to a Meta template
+   via `resolveWhatsAppTemplate` (`messaging/whatsapp-templates.ts`) — a code
+   CONSTANT (no migration): name `qcg_<key>`, ordered body params
+   `[firstName, title]`, plus a dynamic URL-button param from `link`. The
+   builder `buildWhatsAppTemplatePayload` is pure/network-free (unit-tested).
+   Gated by `WHATSAPP_USE_TEMPLATES=true` and only in LIVE mode (creds present);
+   MockAdapter stays demo-safe. EXTERNAL DEPENDENCY (not verifiable here): the
+   Meta templates must actually be created + approved in WhatsApp Manager and
+   the `qcg_<key>` names + placeholder order must match — no real credentials
+   were used. If per-tenant names diverge, add a nullable
+   `message_templates.meta_template_name` column (migration 0010) that overrides
+   the resolver.
 3. **Inbound + webhooks**: add a webhook route for delivery/read receipts and
    inbound replies (not implemented today) to reopen the 24h window and update
    task/message state.
@@ -369,8 +380,17 @@ Goal: turn the placeholder document layer into the real "customer fills the BA f
     row (mirrors the confirmed company-detail `industry_codes`) and the mock
     surfaces it from the fixtures. A company without a code is excluded when a
     specific Branche is selected. Tests: `register-filters.test.ts`.
-- **F.4 WhatsApp phases** (⬜): execute §0d — provision, Meta-approved templates,
-  webhooks for receipts/inbound, link buttons. Adapter + consent already exist.
+- **F.4 WhatsApp phases** (🟡 in progress): §0d step 2 (templates) DONE in code
+  — `WhatsAppCloudAdapter` sends `type:"template"` (HSM) alongside the text path,
+  with the app-key → Meta-template + ordered-param mapping in
+  `messaging/whatsapp-templates.ts` (config constant, no migration), gated by
+  `WHATSAPP_USE_TEMPLATES` and live-mode creds; MockAdapter unchanged
+  (demo-safe). Env vars added to `lib/env.ts` + `.env.example`. Tests:
+  `messaging-adapters.test.ts` (payload builder + mapping + mode toggle).
+  DEFERRED / external-dependency: real Meta template creation + approval (needs
+  client WABA credentials), and §0d step 3 **inbound + webhooks** (delivery/read
+  receipts, reply handling, 24h-window reopen) is NOT implemented in this cycle.
+  Provision (step 1) + real link handling still pending client creds.
 - **F.5 Import run-history + E2E for this cycle** (✅): the pipeline page now
   renders an import & enrichment run-history panel (`listImportRuns` in
   `participants/pipeline.ts` → `ImportRunHistory`) with honest states

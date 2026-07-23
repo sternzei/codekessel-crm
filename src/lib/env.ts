@@ -13,6 +13,18 @@ const envSchema = z.object({
     .string()
     .url()
     .default("https://api.openregister.de"),
+  // WhatsApp Business Cloud (Phase 3 — provided by the client). Without the
+  // access token + phone-number id the messaging adapter stays in demo-safe
+  // mock mode (resolveAdapterMode → "mock"). WHATSAPP_USE_TEMPLATES=true
+  // switches LIVE sends to Meta-approved HSM templates (required for business-
+  // initiated messages outside the 24h session window). Declared here for
+  // central validation/documentation; the adapter reads process.env directly
+  // so it stays injectable in unit tests.
+  WHATSAPP_ACCESS_TOKEN: z.string().optional(),
+  WHATSAPP_PHONE_NUMBER_ID: z.string().optional(),
+  WHATSAPP_API_VERSION: z.string().optional(),
+  WHATSAPP_USE_TEMPLATES: z.enum(["true", "false"]).optional(),
+  WHATSAPP_TEMPLATE_LANGUAGE: z.string().optional(),
 });
 
 // Fail fast at startup: a missing secret must never surface as a runtime 500.
@@ -24,6 +36,11 @@ export const env = envSchema.parse({
   APP_BASE_URL: process.env.APP_BASE_URL,
   OPENREGISTER_API_KEY: process.env.OPENREGISTER_API_KEY,
   OPENREGISTER_BASE_URL: process.env.OPENREGISTER_BASE_URL,
+  WHATSAPP_ACCESS_TOKEN: process.env.WHATSAPP_ACCESS_TOKEN,
+  WHATSAPP_PHONE_NUMBER_ID: process.env.WHATSAPP_PHONE_NUMBER_ID,
+  WHATSAPP_API_VERSION: process.env.WHATSAPP_API_VERSION,
+  WHATSAPP_USE_TEMPLATES: process.env.WHATSAPP_USE_TEMPLATES,
+  WHATSAPP_TEMPLATE_LANGUAGE: process.env.WHATSAPP_TEMPLATE_LANGUAGE,
 });
 
 if (env.AUTH_SECRET === env.TOKEN_SECRET) {

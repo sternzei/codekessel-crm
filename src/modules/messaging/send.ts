@@ -40,6 +40,7 @@ export async function sendTaskMessage(
     body: rendered.body,
     templateKey: params.templateKey,
     taskId: params.taskId,
+    variables: params.variables,
   });
 
   await logActivity(tx, {
