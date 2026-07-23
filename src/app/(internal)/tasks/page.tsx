@@ -3,8 +3,13 @@ import { redirect } from "next/navigation";
 import { withTenant } from "@/db/client";
 import { getSession } from "@/modules/auth/session";
 import { completeTask } from "@/modules/participants/actions-internal";
-import { issueLinkForTask, sendTaskWhatsApp } from "@/modules/tasks/actions";
+import {
+  issueLinkForTask,
+  revokeTaskLink,
+  sendTaskWhatsApp,
+} from "@/modules/tasks/actions";
 import { listOpenTasks } from "@/modules/tasks/queries";
+import { deriveTaskLinkDisplayStatus } from "@/modules/tokens/link-status";
 
 export const dynamic = "force-dynamic";
 
@@ -34,14 +39,20 @@ const WA_MESSAGES: Record<string, string> = {
 export default async function TasksPage({
   searchParams,
 }: {
-  searchParams: Promise<{ link?: string; wa?: string }>;
+  searchParams: Promise<{ link?: string; wa?: string; revoked?: string }>;
 }) {
   const session = await getSession();
   if (!session) redirect("/auth/sign-in");
 
   const t = await getTranslations("tasks");
-  const { link, wa } = await searchParams;
+  const { link, wa, revoked } = await searchParams;
   const waMessage = wa ? WA_MESSAGES[wa] : undefined;
+  const revokedMessage =
+    revoked === undefined
+      ? undefined
+      : Number(revoked) > 0
+        ? `Aufgaben-Link widerrufen (${Number(revoked)}). Der alte Link ist ab sofort ungültig.`
+        : "Kein aktiver Link zum Widerrufen vorhanden.";
   const openTasks = await withTenant(session.tenantId, (tx) =>
     listOpenTasks(tx),
   );
@@ -62,6 +73,15 @@ export default async function TasksPage({
         </p>
       ) : null}
 
+      {revokedMessage ? (
+        <p
+          className={Number(revoked) > 0 ? "info-banner" : "gate-banner"}
+          style={{ marginBottom: "var(--space-6)" }}
+        >
+          {revokedMessage}
+        </p>
+      ) : null}
+
       {link ? (
         <div className="card" style={{ marginBottom: "var(--space-6)" }}>
           <p style={{ fontSize: "var(--text-sm)", fontWeight: 600, marginBottom: "var(--space-2)" }}>
@@ -78,15 +98,20 @@ export default async function TasksPage({
       ) : (
         <div className="data-list">
           {openTasks.map((task) => {
+            const isExternal = task.ownerKind !== "internal_user";
             const canWhatsApp =
-              task.ownerKind !== "internal_user" &&
+              isExternal &&
               WHATSAPP_CHANNELS.has(task.channel) &&
               task.ownerHasPhone;
+            const linkStatus = deriveTaskLinkDisplayStatus({
+              hasLiveLink: task.hasLiveLink,
+              revokedLinkCount: task.revokedLinkCount,
+            });
             return (
               <article
                 key={task.id}
                 className="data-row"
-                style={{ gridTemplateColumns: "1fr auto auto auto auto" }}
+                style={{ gridTemplateColumns: "1fr auto auto auto auto auto" }}
               >
                 <div>
                   <div className="title">{task.title}</div>
@@ -106,6 +131,20 @@ export default async function TasksPage({
                 >
                   {task.status === "escalated" ? "Eskaliert" : "Offen"}
                 </span>
+                {isExternal && linkStatus !== "none" ? (
+                  <span
+                    className={
+                      linkStatus === "revoked"
+                        ? "badge badge--danger"
+                        : "badge"
+                    }
+                    data-testid="task-link-status"
+                  >
+                    {linkStatus === "revoked" ? "Link widerrufen" : "Link aktiv"}
+                  </span>
+                ) : (
+                  <span />
+                )}
                 {canWhatsApp ? (
                   <form action={sendTaskWhatsApp}>
                     <input type="hidden" name="taskId" value={task.id} />
@@ -124,12 +163,25 @@ export default async function TasksPage({
                     </button>
                   </form>
                 ) : (
-                  <form action={issueLinkForTask}>
-                    <input type="hidden" name="taskId" value={task.id} />
-                    <button type="submit" className="button button--sm button--ghost">
-                      Link erzeugen
-                    </button>
-                  </form>
+                  <div style={{ display: "flex", gap: "var(--space-2)" }}>
+                    <form action={issueLinkForTask}>
+                      <input type="hidden" name="taskId" value={task.id} />
+                      <button type="submit" className="button button--sm button--ghost">
+                        Link erzeugen
+                      </button>
+                    </form>
+                    {task.hasLiveLink ? (
+                      <form action={revokeTaskLink}>
+                        <input type="hidden" name="taskId" value={task.id} />
+                        <button
+                          type="submit"
+                          className="button button--sm button--ghost"
+                        >
+                          Link widerrufen
+                        </button>
+                      </form>
+                    ) : null}
+                  </div>
                 )}
               </article>
             );

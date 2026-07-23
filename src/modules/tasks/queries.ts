@@ -14,6 +14,10 @@ export type OpenTask = {
   // Whether the (external) owner has a phone — drives the "Send WhatsApp"
   // button. A boolean, never the number itself, so no PII enters the list.
   ownerHasPhone: boolean;
+  // Magic-link credential state, so a consultant sees whether the task has a
+  // usable link and whether a prior link was revoked/superseded.
+  hasLiveLink: boolean;
+  revokedLinkCount: number;
 };
 
 export async function listOpenTasks(tx: DbHandle): Promise<OpenTask[]> {
@@ -33,6 +37,19 @@ export async function listOpenTasks(tx: DbHandle): Promise<OpenTask[]> {
       dueAt: tasks.dueAt,
       ownerHasPhone: sql<boolean>`(
         coalesce(${participants.phone}, ${employers.contactPhone}) is not null
+      )`,
+      // Correlated subqueries over magic_link_tokens; RLS still applies since
+      // the whole read runs inside the tenant-scoped withTenant transaction.
+      hasLiveLink: sql<boolean>`exists (
+        select 1 from magic_link_tokens mlt
+        where mlt.task_id = ${tasks.id}
+          and mlt.used_at is null
+          and mlt.revoked_at is null
+          and mlt.expires_at > now()
+      )`,
+      revokedLinkCount: sql<number>`(
+        select count(*)::int from magic_link_tokens mlt
+        where mlt.task_id = ${tasks.id} and mlt.revoked_at is not null
       )`,
     })
     .from(tasks)

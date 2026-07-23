@@ -315,8 +315,18 @@ Goal: turn the placeholder document layer into the real "customer fills the BA f
     buckets are per-process — behind >1 instance the effective budget is
     `limit × instances`; move to Redis/Postgres for a hard global cap. Tests:
     `tests/unit/token-throttle.test.ts`.
-  - Still open: token rotation/expiry tuning, consultant-facing revocation UI,
-    audit-surfacing of superseded tokens (see §0c "Deferred").
+  - **Consultant-facing revocation + audit surfacing** (✅): the previously
+    unused `revokeToken` is now wired into a session-guarded, tenant-scoped
+    `revokeTaskLink` server action (`tasks/actions.ts`) that revokes every
+    still-live token for a task (`listLiveTokenIdsForTask` → per-token
+    `revokeToken`, mirroring the automatic bulk `revokeUnusedTokensForTask`)
+    and writes a `link_revoked` activity-log entry. The tasks list now surfaces
+    each task's link state via `getTaskLinkState`/`listOpenTasks` and the pure
+    `deriveTaskLinkDisplayStatus` — a "Link aktiv" / "Link widerrufen" badge
+    plus a "Link widerrufen" action button (only when a live link exists), so a
+    consultant can see and act on an invalidated link. Tests:
+    `tests/unit/token-link-status.test.ts`.
+  - Still open: token rotation/expiry tuning (see §0c "Deferred").
 - **F.2 Participant transition state-machine** (✅): `participant_status`
   transitions are now an explicit, typed state-machine
   (`participants/status-machine.ts`: `ALLOWED_PARTICIPANT_TRANSITIONS`,

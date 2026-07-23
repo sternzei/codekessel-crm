@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { SignJWT, jwtVerify } from "jose";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, eq, gt, isNull, sql } from "drizzle-orm";
 import type { DbHandle } from "@/db/client";
 import { magicLinkTokens, reminderJobs, tasks } from "@/db/schema";
 import { env } from "@/lib/env";
@@ -291,6 +291,65 @@ export async function revokeToken(
     .update(magicLinkTokens)
     .set({ revokedAt: new Date() })
     .where(eq(magicLinkTokens.id, tokenId));
+}
+
+/**
+ * Ids of a task's still-live credentials: unused, not revoked, not expired.
+ * Used by the consultant-facing manual revoke so each token is revoked (via
+ * revokeToken) and audited individually — this mirrors the bulk supersede
+ * revokeUnusedTokensForTask that runs automatically on task completion.
+ */
+export async function listLiveTokenIdsForTask(
+  tx: DbHandle,
+  taskId: string,
+): Promise<string[]> {
+  const rows = await tx
+    .select({ id: magicLinkTokens.id })
+    .from(magicLinkTokens)
+    .where(
+      and(
+        eq(magicLinkTokens.taskId, taskId),
+        isNull(magicLinkTokens.usedAt),
+        isNull(magicLinkTokens.revokedAt),
+        gt(magicLinkTokens.expiresAt, new Date()),
+      ),
+    );
+  return rows.map((row) => row.id);
+}
+
+export type TaskLinkState = {
+  /** A usable link exists (unused, not revoked, not expired). */
+  hasLiveLink: boolean;
+  /** How many of the task's links were explicitly revoked/superseded. */
+  revokedLinkCount: number;
+};
+
+/**
+ * Snapshot of a task's magic-link credential state for internal surfacing:
+ * whether a live link exists and how many have been revoked/superseded. Lets a
+ * consultant see at a glance that a link was invalidated.
+ */
+export async function getTaskLinkState(
+  tx: DbHandle,
+  taskId: string,
+): Promise<TaskLinkState> {
+  const [row] = await tx
+    .select({
+      hasLiveLink: sql<boolean>`bool_or(
+        ${magicLinkTokens.usedAt} is null
+        and ${magicLinkTokens.revokedAt} is null
+        and ${magicLinkTokens.expiresAt} > now()
+      )`,
+      revokedLinkCount: sql<number>`count(*) filter (
+        where ${magicLinkTokens.revokedAt} is not null
+      )::int`,
+    })
+    .from(magicLinkTokens)
+    .where(eq(magicLinkTokens.taskId, taskId));
+  return {
+    hasLiveLink: row?.hasLiveLink ?? false,
+    revokedLinkCount: row?.revokedLinkCount ?? 0,
+  };
 }
 
 function sha256(value: string): string {

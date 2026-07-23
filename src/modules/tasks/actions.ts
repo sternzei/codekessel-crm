@@ -13,6 +13,8 @@ import { normalizePhone } from "@/modules/participants/phone";
 import {
   getOrIssueMagicLinkForTask,
   issueMagicLink,
+  listLiveTokenIdsForTask,
+  revokeToken,
 } from "@/modules/tokens/service";
 
 /**
@@ -46,6 +48,47 @@ export async function issueLinkForTask(formData: FormData): Promise<void> {
   });
 
   redirect(url ? `/tasks?link=${encodeURIComponent(url)}` : "/tasks");
+}
+
+/**
+ * Consultant-facing manual revoke: invalidates a task's still-live magic
+ * link(s) so a mis-sent or compromised link stops working immediately (without
+ * waiting for expiry or task completion). Tenant-scoped + session-guarded like
+ * every internal action. Each live token is revoked individually via
+ * `revokeToken` (mirrors the automatic bulk `revokeUnusedTokensForTask` run on
+ * completion) and the revocation is written to the audit trail. The count is
+ * surfaced back to the tasks page via ?revoked=<n>.
+ */
+export async function revokeTaskLink(formData: FormData): Promise<void> {
+  const session = await getSession();
+  if (!session) redirect("/auth/sign-in");
+
+  const taskId = z.string().uuid().parse(formData.get("taskId"));
+
+  const revokedCount = await withTenant(session.tenantId, async (tx) => {
+    const [task] = await tx.select().from(tasks).where(eq(tasks.id, taskId));
+    if (!task) return 0;
+
+    const liveTokenIds = await listLiveTokenIdsForTask(tx, task.id);
+    for (const tokenId of liveTokenIds) {
+      await revokeToken(tx, tokenId);
+    }
+
+    if (liveTokenIds.length > 0) {
+      await logActivity(tx, {
+        tenantId: session.tenantId,
+        actorKind: "internal_user",
+        actorUserId: session.id,
+        subjectKind: "task",
+        subjectId: task.id,
+        event: "link_revoked",
+        meta: { count: liveTokenIds.length },
+      });
+    }
+    return liveTokenIds.length;
+  });
+
+  redirect(`/tasks?revoked=${revokedCount}`);
 }
 
 // Manual-send outcomes surfaced back to the tasks page via ?wa=<outcome>.
