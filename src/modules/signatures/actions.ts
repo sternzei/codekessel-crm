@@ -13,6 +13,7 @@ import {
   loadTokenContext,
   verifyTokenSignature,
 } from "@/modules/tokens/service";
+import { isExternalActionThrottled } from "@/modules/tokens/request-throttle";
 import { getSignatureProvider } from "./provider";
 import { finalizeIfComplete } from "./finalize";
 
@@ -30,6 +31,9 @@ const signSchema = z.object({
  * hash) is stored with the signature; document → signed; token burned.
  */
 export async function signDocument(formData: FormData): Promise<void> {
+  if (await isExternalActionThrottled()) {
+    redirect(`/t/${String(formData.get("token") ?? "")}?throttled=1`);
+  }
   const parsed = signSchema.safeParse({
     token: formData.get("token"),
     signerName: formData.get("signerName"),

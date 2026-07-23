@@ -11,6 +11,7 @@ import {
   loadTokenContext,
   verifyTokenSignature,
 } from "@/modules/tokens/service";
+import { isExternalActionThrottled } from "@/modules/tokens/request-throttle";
 import {
   isValidBic,
   isValidIban,
@@ -57,6 +58,9 @@ const setupSchema = z.object({
  * This re-entry behavior is deliberate drop-off reduction.
  */
 export async function submitEmployerSetup(formData: FormData): Promise<void> {
+  if (await isExternalActionThrottled()) {
+    redirect(`/t/${String(formData.get("token") ?? "")}?throttled=1`);
+  }
   const parsed = setupSchema.safeParse({
     token: formData.get("token"),
     betriebsnummer: formData.get("betriebsnummer") ?? undefined,

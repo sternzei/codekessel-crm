@@ -301,9 +301,22 @@ Goal: turn the placeholder document layer into the real "customer fills the BA f
   through `completeTaskViaToken` for a consistent `task_completed` audit; and
   `confirmSubmission` is wrapped in try/catch → `/t/{token}?error=1` friendly
   screen instead of a raw 500. Tests extended in `tests/unit/token-service.test.ts`.
-- **F.1b Magic-link P3** (⬜): rate-limit/brute-force protection on `/t/*`,
-  token rotation/expiry tuning, consultant-facing revocation UI, audit-surfacing
-  of superseded tokens (see §0c "Deferred").
+- **F.1b Magic-link P3** (🟡 in progress):
+  - **Rate-limiting on `/t/*`** (✅): the anonymous surface is throttled per-IP
+    via the existing in-memory limiter (`lib/rate-limit`), wrapped in
+    `tokens/throttle.ts` (pure, unit-tested) + `tokens/request-throttle.ts`
+    (reads the forwarded IP). Both the page load (`app/t/[token]/page.tsx`,
+    generous `TOKEN_PAGE_LIMIT` 60/min) and every external server-action
+    submission (`TOKEN_ACTION_LIMIT` 20/min) check-and-count before any
+    token/DB work; over-budget callers get the friendly `taskPage.throttled`
+    screen (page) or a `/t/{token}?throttled=1` redirect (actions) — no stack
+    trace. Keyed PER-IP (never per-token) so the intentional multi-use scopes
+    (`start_aptitude_test`, employer wizard) can re-enter freely. LIMITATION:
+    buckets are per-process — behind >1 instance the effective budget is
+    `limit × instances`; move to Redis/Postgres for a hard global cap. Tests:
+    `tests/unit/token-throttle.test.ts`.
+  - Still open: token rotation/expiry tuning, consultant-facing revocation UI,
+    audit-surfacing of superseded tokens (see §0c "Deferred").
 - **F.2 Participant transition state-machine** (✅): `participant_status`
   transitions are now an explicit, typed state-machine
   (`participants/status-machine.ts`: `ALLOWED_PARTICIPANT_TRANSITIONS`,

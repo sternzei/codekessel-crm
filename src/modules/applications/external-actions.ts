@@ -8,6 +8,7 @@ import {
   loadTokenContext,
   verifyTokenSignature,
 } from "@/modules/tokens/service";
+import { isExternalActionThrottled } from "@/modules/tokens/request-throttle";
 import { changeApplicationStatus } from "./service";
 
 /**
@@ -16,6 +17,9 @@ import { changeApplicationStatus } from "./service";
  * the submission date.
  */
 export async function confirmSubmission(formData: FormData): Promise<void> {
+  if (await isExternalActionThrottled()) {
+    redirect(`/t/${String(formData.get("token") ?? "")}?throttled=1`);
+  }
   const token = z.string().min(10).parse(formData.get("token"));
   const confirmed = formData.get("confirmed") === "on";
   if (!confirmed) return;

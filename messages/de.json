@@ -31,6 +31,8 @@
     "doneBody": "Ihre Angaben wurden gespeichert. Sie erhalten automatisch die nächsten Schritte.",
     "errorTitle": "Das hat nicht geklappt",
     "errorBody": "Ihre Angaben konnten nicht verarbeitet werden. Bitte versuchen Sie es erneut oder wenden Sie sich an Ihre Ansprechperson.",
+    "throttledTitle": "Zu viele Anfragen",
+    "throttled": "Es sind zu viele Anfragen von Ihrem Anschluss eingegangen. Bitte warten Sie einen Moment und versuchen Sie es dann erneut.",
     "placeholderNote": "Diese Aufgabenseite wird in einer späteren Phase umgesetzt.",
     "availability": {
       "title": "Verfügbarkeit bestätigen",

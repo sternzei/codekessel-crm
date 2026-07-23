@@ -23,6 +23,7 @@ import {
   verifyTokenSignature,
   type TokenValidation,
 } from "@/modules/tokens/service";
+import { isExternalActionThrottled } from "@/modules/tokens/request-throttle";
 
 // External (magic-link) task actions for participants. Pattern per action:
 // verify signature → tenant-scoped tx → validate token + scope → do the
@@ -55,6 +56,9 @@ const contactSchema = z.object({
 });
 
 export async function updateContactDetails(formData: FormData): Promise<void> {
+  if (await isExternalActionThrottled()) {
+    redirect(`/t/${String(formData.get("token") ?? "")}?throttled=1`);
+  }
   const parsed = contactSchema.safeParse({
     token: formData.get("token"),
     phone: formData.get("phone"),
@@ -127,6 +131,9 @@ const rescheduleSchema = z.object({
 export async function rescheduleAppointment(
   formData: FormData,
 ): Promise<void> {
+  if (await isExternalActionThrottled()) {
+    redirect(`/t/${String(formData.get("token") ?? "")}?throttled=1`);
+  }
   const parsed = rescheduleSchema.safeParse({
     token: formData.get("token"),
     scheduledAt: formData.get("scheduledAt"),
@@ -210,6 +217,9 @@ export async function rescheduleAppointment(
 const CONSENT_TEXT_VERSION = "v0.1-placeholder";
 
 export async function giveConsent(formData: FormData): Promise<void> {
+  if (await isExternalActionThrottled()) {
+    redirect(`/t/${String(formData.get("token") ?? "")}?throttled=1`);
+  }
   const token = z.string().min(10).parse(formData.get("token"));
   const privacy = formData.get("privacy") === "on";
   const contact = formData.get("contact") === "on";
@@ -258,6 +268,9 @@ const ALLOWED_TYPES = new Set([
 ]);
 
 export async function uploadDocuments(formData: FormData): Promise<void> {
+  if (await isExternalActionThrottled()) {
+    redirect(`/t/${String(formData.get("token") ?? "")}?throttled=1`);
+  }
   const token = z.string().min(10).parse(formData.get("token"));
   const files = formData
     .getAll("files")

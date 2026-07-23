@@ -16,6 +16,7 @@ import {
   verifyTokenSignature,
   type TokenValidation,
 } from "@/modules/tokens/service";
+import { isExternalPageThrottled } from "@/modules/tokens/request-throttle";
 
 export const dynamic = "force-dynamic";
 
@@ -43,12 +44,30 @@ export default async function TokenTaskPage({
   searchParams,
 }: {
   params: Promise<{ token: string }>;
-  searchParams: Promise<{ done?: string; saved?: string; error?: string }>;
+  searchParams: Promise<{
+    done?: string;
+    saved?: string;
+    error?: string;
+    throttled?: string;
+  }>;
 }) {
   const { token } = await params;
-  const { done, saved, error } = await searchParams;
+  const { done, saved, error, throttled } = await searchParams;
   const t = await getTranslations("taskPage");
   const rawToken = decodeURIComponent(token);
+
+  // A submission that was rate-limited redirects here with ?throttled=1; show
+  // the friendly throttled state directly (and don't spend more page budget).
+  if (throttled === "1") {
+    return <Message title={t("throttledTitle")} body={t("throttled")} />;
+  }
+
+  // P3: throttle the anonymous surface per-IP before any token/DB work, so
+  // token enumeration is slowed. The budget is generous (see throttle.ts), so
+  // legitimate multi-use re-entry (aptitude test, employer wizard) is unaffected.
+  if (await isExternalPageThrottled()) {
+    return <Message title={t("throttledTitle")} body={t("throttled")} />;
+  }
 
   const tokenSignature = await verifyTokenSignature(rawToken);
   if (!tokenSignature) {
