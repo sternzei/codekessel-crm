@@ -116,9 +116,16 @@ consent is modelled and enforced in live mode. Phased plan:
    were used. If per-tenant names diverge, add a nullable
    `message_templates.meta_template_name` column (migration 0010) that overrides
    the resolver.
-3. **Inbound + webhooks**: add a webhook route for delivery/read receipts and
-   inbound replies (not implemented today) to reopen the 24h window and update
-   task/message state.
+3. **Inbound + webhooks** (🟡 route shipped): `app/api/webhooks/whatsapp/route.ts`
+   handles Meta's `GET` verify-token subscribe handshake and the `POST` receiver
+   for delivery/read/failed receipts + inbound replies. The parse/verify logic is
+   pure and unit-tested (`messaging/whatsapp-webhook.ts`:
+   `verifyWebhookChallenge`, `isValidWebhookSignature` (HMAC-SHA256 over the raw
+   body), `parseWebhookEvents` → normalized status/inbound events). DEMO-SAFE:
+   both handlers are inert until `WHATSAPP_WEBHOOK_VERIFY_TOKEN` +
+   `WHATSAPP_APP_SECRET` are set (GET 404s, POST acks without processing), and an
+   unsigned POST is refused. Env vars added to `lib/env.ts` + `.env.example`.
+   Persistence (message-id → delivery status) + 24h-window reopen wired next.
 4. **Link handling**: reminders/sends inject a fresh magic link via
    `getOrIssueMagicLinkForTask` (F3/F4); templates must declare the link as a
    URL button/variable.
@@ -387,10 +394,15 @@ Goal: turn the placeholder document layer into the real "customer fills the BA f
   `WHATSAPP_USE_TEMPLATES` and live-mode creds; MockAdapter unchanged
   (demo-safe). Env vars added to `lib/env.ts` + `.env.example`. Tests:
   `messaging-adapters.test.ts` (payload builder + mapping + mode toggle).
+  §0d step 3 **inbound + webhooks** — the webhook ROUTE is now shipped
+  (`app/api/webhooks/whatsapp/route.ts`): Meta `GET` verify-token handshake +
+  signed `POST` receiver, with pure/unit-tested parse+verify helpers
+  (`messaging/whatsapp-webhook.ts`). Demo-safe/inert without
+  `WHATSAPP_WEBHOOK_VERIFY_TOKEN` + `WHATSAPP_APP_SECRET`.
   DEFERRED / external-dependency: real Meta template creation + approval (needs
-  client WABA credentials), and §0d step 3 **inbound + webhooks** (delivery/read
-  receipts, reply handling, 24h-window reopen) is NOT implemented in this cycle.
-  Provision (step 1) + real link handling still pending client creds.
+  client WABA credentials); provision (step 1) + real link handling still pending
+  client creds. (Delivery-status persistence + 24h-window reopen wired in the
+  next commit.)
 - **F.5 Import run-history + E2E for this cycle** (✅): the pipeline page now
   renders an import & enrichment run-history panel (`listImportRuns` in
   `participants/pipeline.ts` → `ImportRunHistory`) with honest states

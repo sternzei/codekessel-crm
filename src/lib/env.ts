@@ -25,6 +25,14 @@ const envSchema = z.object({
   WHATSAPP_API_VERSION: z.string().optional(),
   WHATSAPP_USE_TEMPLATES: z.enum(["true", "false"]).optional(),
   WHATSAPP_TEMPLATE_LANGUAGE: z.string().optional(),
+  // Inbound webhook (§0d step 3). WHATSAPP_WEBHOOK_VERIFY_TOKEN answers Meta's
+  // GET subscribe handshake; WHATSAPP_APP_SECRET validates the HMAC signature on
+  // POST receipts/replies. Both optional: without them the webhook route is
+  // inert (no verification, no state changes) so it is demo-safe to deploy.
+  // Declared here for documentation; the route reads process.env directly so it
+  // stays injectable in unit tests.
+  WHATSAPP_WEBHOOK_VERIFY_TOKEN: z.string().optional(),
+  WHATSAPP_APP_SECRET: z.string().optional(),
 });
 
 // Fail fast at startup: a missing secret must never surface as a runtime 500.
@@ -41,6 +49,8 @@ export const env = envSchema.parse({
   WHATSAPP_API_VERSION: process.env.WHATSAPP_API_VERSION,
   WHATSAPP_USE_TEMPLATES: process.env.WHATSAPP_USE_TEMPLATES,
   WHATSAPP_TEMPLATE_LANGUAGE: process.env.WHATSAPP_TEMPLATE_LANGUAGE,
+  WHATSAPP_WEBHOOK_VERIFY_TOKEN: process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN,
+  WHATSAPP_APP_SECRET: process.env.WHATSAPP_APP_SECRET,
 });
 
 if (env.AUTH_SECRET === env.TOKEN_SECRET) {
