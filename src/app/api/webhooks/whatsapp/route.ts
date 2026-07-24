@@ -1,4 +1,6 @@
+import { getSystemDb } from "@/db/system-client";
 import { logger } from "@/lib/logger";
+import { reconcileDeliveryEvents } from "@/modules/messaging/deliveries";
 import {
   isValidWebhookSignature,
   parseWebhookEvents,
@@ -14,8 +16,9 @@ import {
 // sets WHATSAPP_WEBHOOK_VERIFY_TOKEN (handshake) + WHATSAPP_APP_SECRET
 // (signature check). Without those the route makes no state changes and never
 // trusts an unsigned body, so it is safe to deploy before credentials exist.
-// This commit parses + logs events (PII-safe: ids/statuses only); persistence
-// and state reconciliation are wired in the following commit.
+// A validly-signed POST reconciles delivery/read/failed receipts against the
+// message_deliveries table and reopens the 24h session window on inbound
+// replies, via the trusted owner connection (a Meta callback carries no tenant).
 
 export const dynamic = "force-dynamic";
 
@@ -64,7 +67,27 @@ export async function POST(request: Request): Promise<Response> {
   const events = parseWebhookEvents(payload);
   const statusCount = events.filter((e) => e.kind === "status").length;
   const inboundCount = events.filter((e) => e.kind === "inbound").length;
-  logger.info("whatsapp webhook received", { statusCount, inboundCount });
+
+  // Reconcile against stored delivery state on the trusted owner connection.
+  // If MIGRATION_DATABASE_URL is unset there is no system db to write to; we
+  // still 200 (the signature was valid) so Meta does not retry.
+  const systemDb = getSystemDb();
+  if (systemDb) {
+    try {
+      const applied = await reconcileDeliveryEvents(systemDb, events);
+      logger.info("whatsapp webhook reconciled", {
+        statusCount,
+        inboundCount,
+        ...applied,
+      });
+    } catch (error: unknown) {
+      logger.error("whatsapp webhook reconcile failed", {
+        message: error instanceof Error ? error.message : "unknown",
+      });
+    }
+  } else {
+    logger.info("whatsapp webhook received", { statusCount, inboundCount });
+  }
 
   // Always 200 so Meta does not retry a payload we have already accepted.
   return new Response("ok", { status: 200 });

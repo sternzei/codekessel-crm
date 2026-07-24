@@ -86,13 +86,33 @@ class WhatsAppCloudAdapter implements ChannelAdapter {
       if (!response.ok) {
         return { ok: false, error: await safeError(response) };
       }
-      return { ok: true };
+      return { ok: true, providerMessageId: await parseProviderMessageId(response) };
     } catch (error: unknown) {
       return {
         ok: false,
         error: error instanceof Error ? error.message : "unknown",
       };
     }
+  }
+}
+
+/**
+ * Extract the provider-assigned message id from a WhatsApp Cloud API success
+ * response (`{ messages: [{ id }] }`). Returns undefined on any unexpected
+ * shape rather than throwing — a missing id must never fail an otherwise
+ * successful send.
+ */
+async function parseProviderMessageId(
+  response: Response,
+): Promise<string | undefined> {
+  try {
+    const body = (await response.json()) as {
+      messages?: Array<{ id?: unknown }>;
+    };
+    const id = body.messages?.[0]?.id;
+    return typeof id === "string" && id.length > 0 ? id : undefined;
+  } catch {
+    return undefined;
   }
 }
 

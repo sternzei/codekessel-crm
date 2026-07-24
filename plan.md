@@ -125,15 +125,26 @@ consent is modelled and enforced in live mode. Phased plan:
    both handlers are inert until `WHATSAPP_WEBHOOK_VERIFY_TOKEN` +
    `WHATSAPP_APP_SECRET` are set (GET 404s, POST acks without processing), and an
    unsigned POST is refused. Env vars added to `lib/env.ts` + `.env.example`.
-   Persistence (message-id → delivery status) + 24h-window reopen wired next.
+   **Persistence + reconciliation (shipped):** an outbound live send records the
+   provider message id in the new `message_deliveries` table (migration `0010`,
+   RLS-consistent); a signed `POST` looks the row up by `provider_message_id` and
+   advances its delivery status (`sent → delivered → read`, `failed`) via the
+   pure, monotonic `buildDeliveryReceiptUpdate`/`mergeDeliveryStatus`
+   (`messaging/delivery-status.ts`), and an inbound reply reopens the
+   participant's 24h session window (`participants.whatsapp_window_expires_at`).
+   Reconciliation runs on the trusted OWNER connection (`db/system-client.ts`) —
+   a Meta callback carries no tenant. Demo-safe: the MockAdapter returns no
+   provider id, so nothing is written in demo mode. Tests:
+   `delivery-status.test.ts`, `deliveries.test.ts`.
 4. **Link handling**: reminders/sends inject a fresh magic link via
    `getOrIssueMagicLinkForTask` (F3/F4); templates must declare the link as a
    URL button/variable.
 
 **Open decisions:** template catalogue + German copy (needs legal sign-off, ties
-into Epic E); which flows are proactive (template) vs reply (session); whether to
-persist Meta message IDs for receipt reconciliation; webhook hosting/verify-token
-handling; per-tenant vs shared WABA.
+into Epic E); which flows are proactive (template) vs reply (session);
+per-tenant vs shared WABA. RESOLVED: Meta message IDs ARE persisted for receipt
+reconciliation (`message_deliveries`, migration 0010); webhook verify-token +
+signature handling ships in `app/api/webhooks/whatsapp` gated on env.
 
 ---
 
@@ -394,11 +405,14 @@ Goal: turn the placeholder document layer into the real "customer fills the BA f
   `WHATSAPP_USE_TEMPLATES` and live-mode creds; MockAdapter unchanged
   (demo-safe). Env vars added to `lib/env.ts` + `.env.example`. Tests:
   `messaging-adapters.test.ts` (payload builder + mapping + mode toggle).
-  §0d step 3 **inbound + webhooks** — the webhook ROUTE is now shipped
-  (`app/api/webhooks/whatsapp/route.ts`): Meta `GET` verify-token handshake +
-  signed `POST` receiver, with pure/unit-tested parse+verify helpers
-  (`messaging/whatsapp-webhook.ts`). Demo-safe/inert without
-  `WHATSAPP_WEBHOOK_VERIFY_TOKEN` + `WHATSAPP_APP_SECRET`.
+  §0d step 3 **inbound + webhooks** — shipped: the webhook route
+  (`app/api/webhooks/whatsapp/route.ts`, Meta `GET` verify-token handshake +
+  signed `POST` receiver, pure/unit-tested parse+verify helpers in
+  `messaging/whatsapp-webhook.ts`) PLUS delivery-status persistence
+  (`message_deliveries`, migration 0010) and 24h-window reopen on inbound —
+  provider message ids recorded on live sends, receipts reconciled on the owner
+  connection. Demo-safe/inert without `WHATSAPP_WEBHOOK_VERIFY_TOKEN` +
+  `WHATSAPP_APP_SECRET` (and no provider id in mock mode).
   DEFERRED / external-dependency: real Meta template creation + approval (needs
   client WABA credentials); provision (step 1) + real link handling still pending
   client creds. (Delivery-status persistence + 24h-window reopen wired in the

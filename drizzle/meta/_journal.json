@@ -71,6 +71,13 @@
       "when": 1784833644898,
       "tag": "0009_financial_provenance",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1784882195217,
+      "tag": "0010_message_deliveries",
+      "breakpoints": true
     }
   ]
 }

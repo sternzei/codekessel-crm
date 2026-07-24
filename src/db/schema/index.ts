@@ -19,3 +19,4 @@ export * from "./contact-notes";
 export * from "./consent-records";
 export * from "./activity-log";
 export * from "./message-templates";
+export * from "./message-deliveries";

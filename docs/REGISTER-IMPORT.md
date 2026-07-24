@@ -376,3 +376,18 @@ Enabling live mode: set `WHATSAPP_ACCESS_TOKEN` + `WHATSAPP_PHONE_NUMBER_ID`
 (optionally `WHATSAPP_API_VERSION`). Note: imported leads have no participant
 phone by default (§3), so a WhatsApp send to a freshly imported lead needs a
 phone captured first.
+
+### Delivery receipts & inbound (webhook)
+
+A live WhatsApp send records its provider message id in `message_deliveries`
+(migration `0010`, RLS-consistent). The Meta Cloud API webhook
+(`src/app/api/webhooks/whatsapp/route.ts`) then reconciles state: delivery/read/
+failed receipts advance `message_deliveries.status` monotonically
+(`sent → delivered → read`, `failed`) via the pure
+`src/modules/messaging/delivery-status.ts`, and an inbound reply reopens the
+participant's 24h session window (`participants.whatsapp_window_expires_at`).
+The `GET` verify-token handshake and `POST` HMAC-SHA256 signature check are
+gated on `WHATSAPP_WEBHOOK_VERIFY_TOKEN` / `WHATSAPP_APP_SECRET`; without them
+the route is inert. Reconciliation runs on the trusted owner connection
+(`src/db/system-client.ts`) since a signed Meta callback carries no tenant. In
+demo/mock mode no provider id is issued, so nothing is written.

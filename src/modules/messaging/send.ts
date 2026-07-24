@@ -3,6 +3,7 @@ import type { DbHandle } from "@/db/client";
 import { employers, participants } from "@/db/schema";
 import { logActivity } from "@/modules/audit/log";
 import { getAdapter } from "./adapters";
+import { recordOutboundDelivery } from "./deliveries";
 import { renderTemplate } from "./templates";
 import type { Recipient } from "./types";
 import type { TemplateVariables } from "./templates";
@@ -42,6 +43,19 @@ export async function sendTaskMessage(
     taskId: params.taskId,
     variables: params.variables,
   });
+
+  // Record the provider message id so a webhook receipt can reconcile delivery
+  // state. Only live adapters return one; the demo MockAdapter never does, so
+  // nothing is written in demo mode.
+  if (result.ok && result.providerMessageId) {
+    await recordOutboundDelivery(tx, {
+      tenantId: params.tenantId,
+      taskId: params.taskId,
+      channel: params.channel,
+      providerMessageId: result.providerMessageId,
+      recipient: params.recipient,
+    });
+  }
 
   await logActivity(tx, {
     tenantId: params.tenantId,

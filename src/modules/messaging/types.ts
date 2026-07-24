@@ -23,7 +23,13 @@ export type OutboundMessage = {
   variables?: Record<string, string>;
 };
 
-export type SendResult = { ok: true } | { ok: false; error: string };
+export type SendResult =
+  // providerMessageId is the id the channel assigns to the sent message (Meta
+  // `messages[0].id`), carried so an inbound webhook receipt can reconcile
+  // delivery status. Absent for channels/adapters that don't expose one (the
+  // demo MockAdapter never returns one — nothing is persisted in demo mode).
+  | { ok: true; providerMessageId?: string }
+  | { ok: false; error: string };
 
 // One adapter per channel. Mock adapters ship first; the WhatsApp Business
 // Cloud API and Resend implementations drop in behind this interface once

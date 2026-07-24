@@ -7,6 +7,7 @@ import {
   numeric,
   pgTable,
   text,
+  timestamp,
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
@@ -117,6 +118,14 @@ export const participants = pgTable(
     >(),
     // Funding/subsidy status (KuG/EGZ-Status).
     fundingStatus: jsonb("funding_status").$type<FundingStatus>(),
+
+    // WhatsApp 24h customer-service window: an inbound reply (webhook) reopens
+    // it, which is when free-form (non-template) business replies are allowed.
+    // Null = no open window. Nullable + additive; inherits the participants RLS
+    // policy (same table), so no new policy is needed.
+    whatsappWindowExpiresAt: timestamp("whatsapp_window_expires_at", {
+      withTimezone: true,
+    }),
 
     createdAt: createdAt(),
     updatedAt: updatedAt(),
