@@ -22,10 +22,13 @@ import {
 } from "@/modules/participants/pipeline";
 import {
   buildFunnel,
+  buildPresetQuery,
   computeConversions,
   deriveKpis,
+  isPresetActive,
   nextActionKey,
   parsePipelineListParams,
+  PIPELINE_PRESETS,
   STALE_NEW_DAYS,
   type ConversionKey,
   type NextActionKey,
@@ -175,6 +178,18 @@ export default async function PipelinePage({
       sources,
     };
   });
+
+  // "Alle" (clear) is active only when no filter constraint is set.
+  const isFilterEmpty =
+    filter.statuses.length === 0 &&
+    !filter.consultantId &&
+    !filter.unassigned &&
+    !filter.source &&
+    !filter.phone &&
+    !filter.email &&
+    !filter.search &&
+    !filter.createdFrom &&
+    !filter.createdUntil;
 
   const kpis = deriveKpis(data.counts, data.coverage);
   const funnel = buildFunnel(data.counts);
@@ -450,6 +465,32 @@ export default async function PipelinePage({
           </div>
         </section>
       ) : null}
+
+      <section className="section" aria-label="Schnellfilter">
+        <h2>Schnellfilter</h2>
+        <div className="quick-actions">
+          <Link
+            href="/pipeline"
+            className={`button button--sm${isFilterEmpty ? "" : " button--ghost"}`}
+          >
+            Alle
+          </Link>
+          {PIPELINE_PRESETS.map((preset) => {
+            const active = isPresetActive(preset, filter);
+            return (
+              <Link
+                key={preset.key}
+                href={`/pipeline?${buildPresetQuery(preset)}`}
+                className={`button button--sm${active ? "" : " button--ghost"}`}
+                title={preset.description}
+                aria-current={active ? "true" : undefined}
+              >
+                {preset.label}
+              </Link>
+            );
+          })}
+        </div>
+      </section>
 
       <PipelineFilters
         statuses={PIPELINE_STATUS_ORDER}

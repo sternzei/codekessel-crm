@@ -56,7 +56,13 @@ copy) plus the deferred magic-link P2/P3 items in §0c.
   list, so counts and rows can never disagree; live KPIs, an adjacent-stage
   funnel, filters (status/consultant/source/phone-email/search/date), an
   import-freshness strip, and a CSV export route. KPI/funnel/filter/status
-  definitions of record: `docs/REGISTER-IMPORT.md` §4–§5.
+  definitions of record: `docs/REGISTER-IMPORT.md` §4–§5. **Saved filter presets**
+  (one-click quick-filter views — Erstkontakt offen, Nicht erreichbar,
+  Arbeitgeber offen, Qualifiziert+, In Antrag, Ohne Telefon, Nicht zugewiesen)
+  are pure `PipelineFilter`s (`PIPELINE_PRESETS`) that reuse the same
+  filter→SQL layer, so a preset link's KPIs and list are always consistent; the
+  active preset is highlighted via `serializePipelineFilter`↔`parsePipelineFilter`
+  round-trip equality (`isPresetActive`). Tests: `pipeline-presets.test.ts`.
 - **Manual WhatsApp send** (`sendTaskWhatsApp`): consultant-initiated,
   session-guarded, tenant-scoped; mock in demo, live behind consent — reuses
   existing `task_<type>` templates. Details: `docs/REGISTER-IMPORT.md` §8.

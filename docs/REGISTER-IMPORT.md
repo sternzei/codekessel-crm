@@ -255,6 +255,19 @@ worked) → `qualified+` (of reached) → `application+` (of qualified+) →
 `enrolled` (of application+). Here the total is `totalFromCounts()` (sum of the
 grouped status counts for the same filter).
 
+### Saved filter presets
+
+`PIPELINE_PRESETS` (`src/modules/participants/pipeline-filter.ts`) are one-click
+quick-filter views, each a plain `PipelineFilter` (e.g. "Erstkontakt offen" =
+`status:new`, "Ohne Telefon" = `phone:without`, "Nicht zugewiesen" =
+unassigned). A preset link is built with the pure `serializePipelineFilter`
+(the exact inverse of `parsePipelineFilter`), so it re-enters the page as the
+identical filter and therefore reuses the same `buildPipelineConditions` — a
+preset's KPIs and list can never disagree with a hand-built filter. The active
+preset is detected with `isPresetActive` (order-independent `filtersEqual`).
+Presets are deliberately status/contact-based (no date ranges) so the link
+round-trips serialize↔parse exactly. Tests: `tests/unit/pipeline-presets.test.ts`.
+
 ### Import freshness strip
 
 `getImportFreshness()` (`src/modules/participants/pipeline.ts`) reads

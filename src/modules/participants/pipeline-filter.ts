@@ -169,6 +169,122 @@ export function parsePipelineFilter(raw: RawSearchParams): PipelineFilter {
   };
 }
 
+function toDateInput(date: Date): string {
+  return date.toISOString().slice(0, 10);
+}
+
+/**
+ * The exact inverse of {@link parsePipelineFilter}: serialise a filter back to
+ * the URL query string the pipeline page reads. Because presets (below) round-
+ * trip through this and the parser, a preset link produces the identical filter
+ * — and therefore the identical shared {@link buildPipelineConditions} — so its
+ * KPIs and list can never disagree with a hand-built filter.
+ */
+export function serializePipelineFilter(filter: PipelineFilter): string {
+  const params = new URLSearchParams();
+  if (filter.statuses.length > 0) params.set("status", filter.statuses.join(","));
+  if (filter.unassigned) params.set("consultant", "unassigned");
+  else if (filter.consultantId) params.set("consultant", filter.consultantId);
+  if (filter.source) params.set("source", filter.source);
+  if (filter.createdFrom) params.set("createdFrom", toDateInput(filter.createdFrom));
+  if (filter.createdUntil) params.set("createdUntil", toDateInput(filter.createdUntil));
+  if (filter.phone) params.set("phone", filter.phone);
+  if (filter.email) params.set("email", filter.email);
+  if (filter.search) params.set("q", filter.search);
+  return params.toString();
+}
+
+// Canonical, order-independent key for a filter so two filters that select the
+// same leads compare equal regardless of how they were built (used to highlight
+// the active preset).
+function filterKey(filter: PipelineFilter): string {
+  return JSON.stringify({
+    statuses: [...filter.statuses].sort(),
+    consultantId: filter.consultantId ?? null,
+    unassigned: Boolean(filter.unassigned),
+    source: filter.source ?? null,
+    phone: filter.phone ?? null,
+    email: filter.email ?? null,
+    search: filter.search ?? null,
+    createdFrom: filter.createdFrom?.getTime() ?? null,
+    createdUntil: filter.createdUntil?.getTime() ?? null,
+  });
+}
+
+/** True when two filters select the identical set of leads. */
+export function filtersEqual(a: PipelineFilter, b: PipelineFilter): boolean {
+  return filterKey(a) === filterKey(b);
+}
+
+export interface PipelinePreset {
+  key: string;
+  label: string;
+  description: string;
+  filter: PipelineFilter;
+}
+
+// Saved one-click filter views for the operational workspace. Each is a plain
+// PipelineFilter, so it reuses the exact shared filter→SQL layer — no divergent
+// query. Deliberately status/contact-based (no date ranges) so the preset link
+// round-trips serialize↔parse exactly.
+export const PIPELINE_PRESETS: PipelinePreset[] = [
+  {
+    key: "needs_first_call",
+    label: "Erstkontakt offen",
+    description: "Neue Leads, die noch nie angerufen wurden.",
+    filter: { statuses: ["new"] },
+  },
+  {
+    key: "unreachable",
+    label: "Nicht erreichbar",
+    description: "Nicht erreicht oder falsche Nummer — erneut versuchen.",
+    filter: { statuses: [...UNREACHABLE_STATUSES] },
+  },
+  {
+    key: "employer_pending",
+    label: "Arbeitgeber offen",
+    description: "Warten auf die Freigabe des Arbeitgebers.",
+    filter: { statuses: ["employer_pending"] },
+  },
+  {
+    key: "qualified_plus",
+    label: "Qualifiziert+",
+    description: "Verfügbarkeit bestätigt und weiter im Funnel.",
+    filter: { statuses: [...QUALIFIED_PLUS_STATUSES] },
+  },
+  {
+    key: "in_application",
+    label: "In Antrag",
+    description: "Antragsphase und eingeschrieben.",
+    filter: { statuses: [...APPLICATION_PLUS_STATUSES] },
+  },
+  {
+    key: "missing_phone",
+    label: "Ohne Telefon",
+    description: "Offene Leads ohne erfasste Telefonnummer.",
+    filter: { statuses: [], phone: "without" },
+  },
+  {
+    key: "unassigned",
+    label: "Nicht zugewiesen",
+    description: "Leads ohne zuständige Beratung.",
+    filter: { statuses: [], unassigned: true },
+  },
+];
+
+/** The `/pipeline` query string for a preset (pure). */
+export function buildPresetQuery(preset: PipelinePreset): string {
+  return serializePipelineFilter(preset.filter);
+}
+
+/** Whether a preset is the currently-applied filter (for active highlighting). */
+export function isPresetActive(
+  preset: PipelinePreset,
+  filter: PipelineFilter,
+): boolean {
+  return filtersEqual(preset.filter, filter);
+}
+
 function clampInt(
   value: string | undefined,
   fallback: number,
