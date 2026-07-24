@@ -6,6 +6,7 @@ import { magicLinkTokens, reminderJobs, tasks } from "@/db/schema";
 import { env } from "@/lib/env";
 import { logActivity } from "@/modules/audit/log";
 import { isActiveTaskStatus } from "@/modules/tasks/status";
+import { computeTokenExpiry, resolveTokenTtlHours } from "./policy";
 
 // Magic links are the only way external people touch the system: one link,
 // one task, no account. The JWT carries just enough to route validation
@@ -13,7 +14,6 @@ import { isActiveTaskStatus } from "@/modules/tasks/status";
 // revocation, single-use enforcement, and an audit trail.
 
 const secret = new TextEncoder().encode(env.TOKEN_SECRET);
-const DEFAULT_TTL_HOURS = 7 * 24;
 
 export type SubjectKind = "participant" | "employer";
 
@@ -30,8 +30,14 @@ export async function issueMagicLink(
   tx: DbHandle,
   params: IssueParams,
 ): Promise<{ url: string; tokenId: string; expiresAt: Date }> {
-  const ttlHours = params.ttlHours ?? DEFAULT_TTL_HOURS;
-  const expiresAt = new Date(Date.now() + ttlHours * 60 * 60 * 1000);
+  // TTL/expiry is centralised in the policy module: an explicit per-issue value
+  // wins, else the deployment default (MAGIC_LINK_TTL_HOURS), else the built-in
+  // default — always clamped to safe guardrails.
+  const ttlHours = resolveTokenTtlHours({
+    requestedTtlHours: params.ttlHours,
+    configuredTtlHours: env.MAGIC_LINK_TTL_HOURS,
+  });
+  const expiresAt = computeTokenExpiry(ttlHours);
 
   const token = await new SignJWT({
     tid: params.tenantId,

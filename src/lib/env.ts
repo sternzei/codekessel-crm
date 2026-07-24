@@ -6,6 +6,9 @@ const envSchema = z.object({
   AUTH_SECRET: z.string().min(16),
   TOKEN_SECRET: z.string().min(16),
   APP_BASE_URL: z.string().url().default("http://localhost:3000"),
+  // Magic-link token lifetime in hours (default 168 = 7 days). Centrally
+  // enforced + clamped to safe guardrails in modules/tokens/policy.ts.
+  MAGIC_LINK_TTL_HOURS: z.coerce.number().int().positive().optional(),
   // OpenRegister (Handelsregister) company import. Optional: without a key the
   // register provider falls back to a demo-safe mock adapter (zero credits).
   OPENREGISTER_API_KEY: z.string().optional(),
@@ -42,6 +45,7 @@ export const env = envSchema.parse({
   AUTH_SECRET: process.env.AUTH_SECRET,
   TOKEN_SECRET: process.env.TOKEN_SECRET,
   APP_BASE_URL: process.env.APP_BASE_URL,
+  MAGIC_LINK_TTL_HOURS: process.env.MAGIC_LINK_TTL_HOURS,
   OPENREGISTER_API_KEY: process.env.OPENREGISTER_API_KEY,
   OPENREGISTER_BASE_URL: process.env.OPENREGISTER_BASE_URL,
   WHATSAPP_ACCESS_TOKEN: process.env.WHATSAPP_ACCESS_TOKEN,

@@ -336,6 +336,7 @@ Only variables actually read by the code are listed (grep-verified). No
 | `AUTH_SECRET` | yes (≥16) | `src/lib/env.ts`, `src/modules/auth/session.ts` | Signs internal session cookies. |
 | `TOKEN_SECRET` | yes (≥16, ≠ AUTH_SECRET) | `src/lib/env.ts`, `src/modules/tokens/service.ts` | Signs external magic-link tokens. |
 | `APP_BASE_URL` | optional (default `http://localhost:3000`) | `src/lib/env.ts`, `src/modules/tokens/service.ts` | Base URL for magic links. |
+| `MAGIC_LINK_TTL_HOURS` | optional (default `168`) | `src/lib/env.ts`, `src/modules/tokens/policy.ts` | Magic-link lifetime in hours; clamped to `[1, 720]`. |
 | `OPENREGISTER_API_KEY` | optional | `src/lib/env.ts`, `src/modules/register/index.ts` | Enables the live OpenRegister provider (else mock). |
 | `OPENREGISTER_BASE_URL` | optional (default `https://api.openregister.de`) | `src/lib/env.ts` | OpenRegister API base. |
 | `WHATSAPP_ACCESS_TOKEN` | optional | `src/modules/messaging/adapters.ts` | With `WHATSAPP_PHONE_NUMBER_ID`, enables live WhatsApp. |

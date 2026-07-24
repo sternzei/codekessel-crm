@@ -85,11 +85,11 @@ until they finish the test) and the employer setup wizard scopes
 the token is burned). This re-entry is a drop-off-reduction feature; the
 predicate lives in one place (`isMultiUseScope`).
 
-**Deferred (P2/P3):** rate-limiting / brute-force protection on the `/t/*`
-endpoints; per-signer token binding beyond scope (multi-signer co-sign hardening);
-structured revocation UI for consultants; token rotation/expiry policy tuning;
-audit-surfacing of superseded tokens. None change current behaviour; tracked for
-a later security pass.
+**Deferred (P2/P3):** per-signer token binding beyond scope (multi-signer
+co-sign hardening). Now DONE (see §3 F.1/F.1b): rate-limiting / brute-force
+protection on the `/t/*` endpoints; structured revocation + audit surfacing for
+consultants; and token rotation/expiry policy tuning
+(`modules/tokens/policy.ts`, `MAGIC_LINK_TTL_HOURS`, clamped guardrails).
 
 ### 0d. WhatsApp Business (Meta Cloud API) integration plan
 
@@ -355,7 +355,16 @@ Goal: turn the placeholder document layer into the real "customer fills the BA f
     plus a "Link widerrufen" action button (only when a live link exists), so a
     consultant can see and act on an invalidated link. Tests:
     `tests/unit/token-link-status.test.ts`.
-  - Still open: token rotation/expiry tuning (see §0c "Deferred").
+  - **Token rotation/expiry policy tuning** (✅): the TTL/expiry rules are now
+    centralised in `modules/tokens/policy.ts` (`resolveTokenTtlHours`,
+    `computeTokenExpiry`, `clampTtlHours`) — no more scattered `7 * 24` literals.
+    Lifetime is configurable via `MAGIC_LINK_TTL_HOURS` (default 168h) and always
+    clamped to `[1, 720]` so a misconfig can neither mint an immortal nor an
+    already-useless link. Rotation on re-issue is unchanged and consistent: a
+    re-issue mints a fresh token and supersedes the previous live one
+    (`getOrIssueMagicLinkForTask` → `revokeUnusedTokensForTask`), resetting the
+    TTL on a brand-new credential. All F1–F5/P2/P3 hardening preserved. Tests:
+    `tests/unit/token-policy.test.ts`.
 - **F.2 Participant transition state-machine** (✅): `participant_status`
   transitions are now an explicit, typed state-machine
   (`participants/status-machine.ts`: `ALLOWED_PARTICIPANT_TRANSITIONS`,
