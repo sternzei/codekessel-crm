@@ -12,6 +12,8 @@ import {
 import {
   addContactNote,
   inviteAptitudeTest,
+  requestConsentLink,
+  requestUploadLink,
   scheduleAppointment,
   setAptitudeTestStatus,
   setAvailability,
@@ -40,13 +42,16 @@ export default async function LeadDetailPage({
     undo?: string;
     transition?: string;
     badata?: string;
+    consentLink?: string;
+    uploadLink?: string;
   }>;
 }) {
   const session = await getSession();
   if (!session) redirect("/auth/sign-in");
 
   const { id } = await params;
-  const { gate, undo, transition, badata } = await searchParams;
+  const { gate, undo, transition, badata, consentLink, uploadLink } =
+    await searchParams;
   const tStatus = await getTranslations("status.participant");
 
   const data = await withTenant(session.tenantId, async (tx) => {
@@ -113,6 +118,24 @@ export default async function LeadDetailPage({
       {badata === "saved" ? (
         <p className="info-banner" style={{ marginBottom: "var(--space-6)" }}>
           BA-Antragsdaten gespeichert.
+        </p>
+      ) : null}
+
+      {consentLink ? (
+        <p className="info-banner" style={{ marginBottom: "var(--space-6)" }}>
+          Einwilligungs-Link erzeugt:{" "}
+          <a href={consentLink} target="_blank" rel="noreferrer">
+            {consentLink}
+          </a>
+        </p>
+      ) : null}
+
+      {uploadLink ? (
+        <p className="info-banner" style={{ marginBottom: "var(--space-6)" }}>
+          Upload-Link erzeugt:{" "}
+          <a href={uploadLink} target="_blank" rel="noreferrer">
+            {uploadLink}
+          </a>
         </p>
       ) : null}
       {badata === "iban" || badata === "bic" || badata === "sv" ? (
@@ -190,6 +213,36 @@ export default async function LeadDetailPage({
           </section>
 
           <BaDataSection participant={p} />
+
+          <section className="section" aria-label="Einwilligungen">
+            <h2>Einwilligungen (DSGVO)</h2>
+            <p style={{ fontSize: "var(--text-xs)", color: "var(--color-ink-faint)" }}>
+              Vom Teilnehmer benötigt: Datenschutz- und Kontakt-Einwilligung
+              (Pflicht für den Antrag). Der Link öffnet den externen
+              Einwilligungs-Task.
+            </p>
+            <form action={requestConsentLink}>
+              <input type="hidden" name="participantId" value={p.id} />
+              <button type="submit" className="button button--sm">
+                Einwilligungs-Link erzeugen
+              </button>
+            </form>
+          </section>
+
+          <section className="section" aria-label="Unterlagen">
+            <h2>Unterlagen (Nachweise)</h2>
+            <p style={{ fontSize: "var(--text-xs)", color: "var(--color-ink-faint)" }}>
+              Vom Teilnehmer benötigt: Nachweise für den Antrag (PDF, JPG oder
+              PNG, max. 10&nbsp;MB pro Datei). Der Link öffnet den externen
+              Upload-Task.
+            </p>
+            <form action={requestUploadLink}>
+              <input type="hidden" name="participantId" value={p.id} />
+              <button type="submit" className="button button--sm">
+                Upload-Link erzeugen
+              </button>
+            </form>
+          </section>
 
           <section className="section" aria-label="Kontaktnotizen">
             <h2>Kontaktnotizen</h2>

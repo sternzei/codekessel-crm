@@ -79,33 +79,33 @@ export async function processTransition(
 
   const createdTaskIds: string[] = [];
 
+  // Idempotency (W1.2): never stack a second active task for the same
+  // (tenant, type, owner, subject). Fetched once per transition; tasks
+  // created by earlier rules in this loop are appended so later rules see
+  // them. The unique partial index tasks_active_dedup_idx closes the
+  // concurrent-transition race that this app-level check cannot see.
+  const activeForSubject = await tx
+    .select({
+      type: tasks.type,
+      ownerKind: tasks.ownerKind,
+      ownerParticipantId: tasks.ownerParticipantId,
+      ownerEmployerId: tasks.ownerEmployerId,
+      ownerUserId: tasks.ownerUserId,
+      status: tasks.status,
+    })
+    .from(tasks)
+    .where(
+      and(
+        eq(tasks.tenantId, event.tenantId),
+        eq(tasks.subjectKind, event.entity),
+        eq(tasks.subjectId, event.entityId),
+        inArray(tasks.status, [...ACTIVE_TASK_STATUSES]),
+      ),
+    );
+
   for (const rule of rules) {
     const owner = resolveOwner(rule.ownerKind, event.context);
     if (!owner) continue; // No matching person in context — rule skipped.
-
-    // Idempotency (W1.2): never stack a second active task for the same
-    // (tenant, type, owner, subject). Repeated or concurrent transitions
-    // (e.g. re-recording the same availability answer) must not fan out
-    // duplicate tasks/links/reminders. We fetch the subject's active tasks
-    // and apply the shared rule so the decision lives in one place.
-    const activeForSubject = await tx
-      .select({
-        type: tasks.type,
-        ownerKind: tasks.ownerKind,
-        ownerParticipantId: tasks.ownerParticipantId,
-        ownerEmployerId: tasks.ownerEmployerId,
-        ownerUserId: tasks.ownerUserId,
-        status: tasks.status,
-      })
-      .from(tasks)
-      .where(
-        and(
-          eq(tasks.tenantId, event.tenantId),
-          eq(tasks.subjectKind, event.entity),
-          eq(tasks.subjectId, event.entityId),
-          inArray(tasks.status, [...ACTIVE_TASK_STATUSES]),
-        ),
-      );
 
     if (
       hasDuplicateActiveTask(
@@ -124,6 +124,9 @@ export async function processTransition(
       continue;
     }
 
+    // onConflictDoNothing: if a CONCURRENT transition won the race and
+    // inserted the same active task (unique partial index), treat it as a
+    // duplicate instead of aborting the whole transaction with 23505.
     const [task] = await tx
       .insert(tasks)
       .values({
@@ -142,7 +145,29 @@ export async function processTransition(
           ? hoursFromNow(rule.escalationHours)
           : null,
       })
+      .onConflictDoNothing()
       .returning({ id: tasks.id });
+
+    if (!task) {
+      await logActivity(tx, {
+        tenantId: event.tenantId,
+        actorKind: "system",
+        subjectKind: event.entity,
+        subjectId: event.entityId,
+        event: "task_skipped_duplicate",
+        meta: { ruleId: rule.id, taskType: rule.taskType, via: "constraint" },
+      });
+      continue;
+    }
+
+    activeForSubject.push({
+      type: rule.taskType,
+      ownerKind: rule.ownerKind,
+      ownerParticipantId: owner.ownerParticipantId ?? null,
+      ownerEmployerId: owner.ownerEmployerId ?? null,
+      ownerUserId: owner.ownerUserId ?? null,
+      status: "open",
+    });
 
     createdTaskIds.push(task.id);
 

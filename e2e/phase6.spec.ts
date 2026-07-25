@@ -74,6 +74,68 @@ test("full submission flow: prepare → employer confirm → approve → enrolle
   // Lena → Nordbau: complete employer data, so the readiness gate passes.
   await createApplicationFor(page, "Lena Hoffmann");
 
+  // Gate blocker 1/3: privacy consent. Request the magic link on the lead
+  // page, then grant the required consents externally.
+  await page.goto("/pipeline");
+  await page.getByRole("link", { name: "Lena Hoffmann" }).first().click();
+  await page
+    .getByRole("button", { name: "Einwilligungs-Link erzeugen" })
+    .click();
+  const consentHref = await page
+    .locator(".info-banner a", { hasText: "/t/" })
+    .getAttribute("href");
+  if (!consentHref) throw new Error("no consent link minted");
+  await page.goto(consentHref);
+  await expect(page.locator("h1")).toContainText("Einwilligungen");
+  await page.locator("input[name=privacy]").check();
+  await page.locator("input[name=contact]").check();
+  await page.getByRole("button", { name: "Einwilligungen bestätigen" }).click();
+  await expect(page.locator("h1")).toContainText("Vielen Dank");
+
+  // Gate blockers 2+3/3: the eService upload set for the Einzelantrag —
+  // Trägerbescheinigung (present is enough) and the Arbeitnehmererklärung
+  // (must carry the participant's SES signature).
+  await page.goto("/documents");
+  await page.getByRole("link", { name: "Lena Hoffmann" }).click();
+  await page
+    .getByRole("button", { name: "Trägerbescheinigung (BA-Formular)" })
+    .click();
+  await expect(
+    page.locator(".note", { hasText: "Trägerbescheinigung" }).first(),
+  ).toBeVisible();
+  await page
+    .getByRole("button", { name: "Arbeitnehmererklärung (BA-Formular)" })
+    .click();
+  const aeCard = page.locator(".note", { hasText: "Arbeitnehmererklärung" });
+  await expect(aeCard.first()).toBeVisible();
+
+  await aeCard.getByRole("button", { name: "Signatur: Teilnehmer:in" }).click();
+  await expect(
+    aeCard.getByText("Signatur (Teilnehmer:in): ausstehend"),
+  ).toBeVisible();
+
+  // Mint the signer link from the task board and sign via canvas.
+  await page.goto("/tasks");
+  await page
+    .locator(".data-row", { hasText: "Dokument unterschreiben" })
+    .getByRole("button", { name: "Link erzeugen" })
+    .first()
+    .click();
+  const signLink = (await page.getByTestId("task-link").innerText()).trim();
+  await page.goto(signLink);
+  await expect(page.locator("h1")).toContainText("Dokument unterschreiben");
+  const canvas = page.locator("canvas.signature-canvas");
+  const box = await canvas.boundingBox();
+  if (!box) throw new Error("canvas not visible");
+  await page.mouse.move(box.x + 30, box.y + 80);
+  await page.mouse.down();
+  await page.mouse.move(box.x + 120, box.y + 40, { steps: 10 });
+  await page.mouse.move(box.x + 200, box.y + 100, { steps: 10 });
+  await page.mouse.up();
+  await page.getByLabel(/Ich bestätige/).check();
+  await page.getByRole("button", { name: "Jetzt unterschreiben" }).click();
+  await expect(page.locator("h1")).toContainText("Vielen Dank");
+
   // in_preparation → complete (passes the readiness gate).
   await page.goto("/applications");
   const lena = () => page.locator(".data-row", { hasText: "Lena Hoffmann" });

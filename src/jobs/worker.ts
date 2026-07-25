@@ -26,6 +26,12 @@ const db = drizzle(sql, { schema });
 const { reminderJobs, tasks, participants, users, activityLog } = schema;
 
 const POLL_INTERVAL_MS = 15_000;
+// A claimed ('sending') job whose worker died is reclaimed after this window.
+const STALE_CLAIM_MS = 10 * 60_000;
+const MAX_ATTEMPTS = 3;
+const RETRY_DELAY_MS = 5 * 60_000;
+
+type DispatchOutcome = "sent" | "no_recipient" | "failed";
 
 export async function runOnce(): Promise<{
   remindersSent: number;
@@ -37,17 +43,46 @@ export async function runOnce(): Promise<{
 }
 
 async function drainDueReminders(): Promise<number> {
-  const due = await db
-    .select({ job: reminderJobs, task: tasks })
+  // Recover jobs stuck in 'sending' by a crashed worker so they retry.
+  await db
+    .update(reminderJobs)
+    .set({ status: "scheduled" })
+    .where(
+      and(
+        eq(reminderJobs.status, "sending"),
+        lte(reminderJobs.updatedAt, new Date(Date.now() - STALE_CLAIM_MS)),
+      ),
+    );
+
+  // Atomically claim due jobs: only rows this worker flipped to 'sending'
+  // are ours — a second worker skips them (SKIP LOCKED), so no double-send.
+  const dueIds = db
+    .select({ id: reminderJobs.id })
     .from(reminderJobs)
-    .innerJoin(tasks, eq(reminderJobs.taskId, tasks.id))
     .where(
       and(
         eq(reminderJobs.status, "scheduled"),
         lte(reminderJobs.fireAt, new Date()),
       ),
     )
-    .limit(50);
+    .orderBy(reminderJobs.fireAt)
+    .limit(50)
+    .for("update", { skipLocked: true });
+
+  const claimed = await db
+    .update(reminderJobs)
+    .set({ status: "sending" })
+    .where(inArray(reminderJobs.id, dueIds))
+    .returning({ id: reminderJobs.id });
+
+  if (claimed.length === 0) return 0;
+
+  const due = await db
+    .select({ job: reminderJobs, task: tasks })
+    .from(reminderJobs)
+    .innerJoin(tasks, eq(reminderJobs.taskId, tasks.id))
+    .where(inArray(reminderJobs.id, claimed.map((c) => c.id)))
+    .orderBy(reminderJobs.fireAt);
 
   let sent = 0;
   for (const { job, task } of due) {
@@ -61,48 +96,82 @@ async function drainDueReminders(): Promise<number> {
     }
 
     try {
+      let outcome: DispatchOutcome;
       if (job.channel === "internal") {
-        await createReminderCallTask(task, job.templateKey);
+        outcome = (await createReminderCallTask(task, job.templateKey))
+          ? "sent"
+          : "no_recipient";
       } else if (job.channel === "whatsapp" || job.channel === "email") {
-        await sendExternalReminder(task, job.channel, job.templateKey);
+        outcome = await sendExternalReminder(task, job.channel, job.templateKey);
+      } else {
+        outcome = "no_recipient";
       }
-      await db
-        .update(reminderJobs)
-        .set({ status: "sent", sentAt: new Date(), attempts: job.attempts + 1 })
-        .where(eq(reminderJobs.id, job.id));
-      sent += 1;
+
+      if (outcome === "sent") {
+        await db
+          .update(reminderJobs)
+          .set({ status: "sent", sentAt: new Date(), attempts: job.attempts + 1 })
+          .where(eq(reminderJobs.id, job.id));
+        sent += 1;
+      } else if (outcome === "no_recipient") {
+        // Permanently undeliverable (no owner/recipient/responsible user) —
+        // don't pretend it was sent, don't retry forever.
+        await db
+          .update(reminderJobs)
+          .set({
+            status: "cancelled",
+            attempts: job.attempts + 1,
+            lastError: "no_recipient",
+          })
+          .where(eq(reminderJobs.id, job.id));
+        logger.error("reminder undeliverable", {
+          jobId: job.id,
+          message: "no_recipient",
+        });
+      } else {
+        await markReminderFailed(job, "adapter_rejected");
+      }
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : "unknown";
-      await db
-        .update(reminderJobs)
-        .set({
-          status: job.attempts + 1 >= 3 ? "failed" : "scheduled",
-          attempts: job.attempts + 1,
-          lastError: message,
-          // Retry in 5 minutes unless attempts are exhausted.
-          fireAt: new Date(Date.now() + 5 * 60_000),
-        })
-        .where(eq(reminderJobs.id, job.id));
+      await markReminderFailed(job, message);
       logger.error("reminder dispatch failed", { jobId: job.id, message });
     }
   }
   return sent;
 }
 
+async function markReminderFailed(
+  job: typeof reminderJobs.$inferSelect,
+  message: string,
+): Promise<void> {
+  const attempts = job.attempts + 1;
+  const exhausted = attempts >= MAX_ATTEMPTS;
+  await db
+    .update(reminderJobs)
+    .set({
+      status: exhausted ? "failed" : "scheduled",
+      attempts,
+      lastError: message,
+      // Only reschedule when retries remain.
+      ...(exhausted ? {} : { fireAt: new Date(Date.now() + RETRY_DELAY_MS) }),
+    })
+    .where(eq(reminderJobs.id, job.id));
+}
+
 async function sendExternalReminder(
   task: typeof tasks.$inferSelect,
   channel: "whatsapp" | "email",
   templateKey: string | null,
-): Promise<void> {
-  if (task.ownerKind === "internal_user") return;
+): Promise<DispatchOutcome> {
+  if (task.ownerKind === "internal_user") return "no_recipient";
   const ownerId =
     task.ownerKind === "participant"
       ? task.ownerParticipantId
       : task.ownerEmployerId;
-  if (!ownerId) return;
+  if (!ownerId) return "no_recipient";
 
   const recipient = await resolveRecipient(db, task.ownerKind, ownerId);
-  if (!recipient) return;
+  if (!recipient) return "no_recipient";
 
   // F4: reminders for magic-link tasks must include a valid link. The JWT can't
   // be rebuilt from the stored hash, so we mint a fresh one (superseding any
@@ -112,7 +181,7 @@ async function sendExternalReminder(
       ? await getOrIssueMagicLinkForTask(db, task)
       : null;
 
-  await sendTaskMessage(db, {
+  const ok = await sendTaskMessage(db, {
     tenantId: task.tenantId,
     taskId: task.id,
     channel,
@@ -124,15 +193,34 @@ async function sendExternalReminder(
       ...(link ? { link } : {}),
     },
   });
+  return ok ? "sent" : "failed";
 }
 
 /** "Reminder call" step: an internal task for the responsible consultant. */
 async function createReminderCallTask(
   task: typeof tasks.$inferSelect,
   templateKey: string | null,
-): Promise<void> {
+): Promise<boolean> {
   const consultantId = await resolveResponsibleUser(task);
-  if (!consultantId) return;
+  if (!consultantId) return false;
+
+  // Retry-after-partial-failure guard: if a previous attempt already created
+  // the call task but crashed before marking the job, don't stack a second.
+  if (task.subjectId) {
+    const [existing] = await db
+      .select({ id: tasks.id })
+      .from(tasks)
+      .where(
+        and(
+          eq(tasks.tenantId, task.tenantId),
+          eq(tasks.type, "reminder_call"),
+          eq(tasks.subjectId, task.subjectId),
+          inArray(tasks.status, [...ACTIVE_TASK_STATUSES]),
+        ),
+      )
+      .limit(1);
+    if (existing) return true;
+  }
 
   const [created] = await db
     .insert(tasks)
@@ -158,6 +246,7 @@ async function createReminderCallTask(
     event: "task_created",
     meta: { taskType: "reminder_call", templateKey },
   });
+  return true;
 }
 
 async function escalateOverdueTasks(): Promise<number> {
@@ -172,21 +261,26 @@ async function escalateOverdueTasks(): Promise<number> {
     )
     .limit(50);
 
+  let escalated = 0;
   for (const task of overdue) {
     const escalateTo = await resolveResponsibleUser(task, "admin");
 
     // Escalate at most once (W1.3): flip the status AND clear escalation_at.
-    // The status flip already drops the row out of the overdue query, and
-    // clearing the timestamp means even a later reopen can't re-trigger it —
-    // so a poll loop can never re-escalate the same task.
-    await db
+    // The WHERE clause makes the flip atomic — a concurrent worker flipping
+    // the same row gets an empty RETURNING and skips the follow-up + log.
+    const [flipped] = await db
       .update(tasks)
       .set({
         status: "escalated",
         escalatedToUserId: escalateTo,
         escalationAt: null,
       })
-      .where(eq(tasks.id, task.id));
+      .where(
+        and(eq(tasks.id, task.id), inArray(tasks.status, [...ACTIVE_TASK_STATUSES])),
+      )
+      .returning({ id: tasks.id });
+    if (!flipped) continue;
+    escalated += 1;
 
     // Only spawn a follow-up when one isn't already open for this subject,
     // so repeated overdue tasks on the same lead don't pile up follow-ups.
@@ -214,7 +308,7 @@ async function escalateOverdueTasks(): Promise<number> {
       meta: { taskType: task.type },
     });
   }
-  return overdue.length;
+  return escalated;
 }
 
 /**

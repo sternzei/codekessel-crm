@@ -20,6 +20,15 @@ export type ImportRunStats = {
   conflicted: number;
 };
 
+// Where a run was triggered from, for audit. The IP is recorded only when it
+// is honestly knowable — i.e. the app sits behind a trusted proxy
+// (TRUST_PROXY=true, see lib/client-ip); otherwise null rather than a
+// spoofable x-forwarded-for value.
+export type ImportProvenance = {
+  clientIp: string | null;
+  userAgent: string | null;
+};
+
 // The search/company parameters that produced a run, stored on
 // import_runs.criteria for provenance.
 export type ImportRunCriteria = {
@@ -30,6 +39,7 @@ export type ImportRunCriteria = {
   // Provenance of the loss figure carried from discovery — persisted on the
   // lead alongside the structured columns (see buildFinancialColumns).
   financialsSource: FinancialsSource | null;
+  provenance?: ImportProvenance;
 };
 
 // The structured financial columns persisted on the imported lead
@@ -77,6 +87,7 @@ export type BatchImportRunCriteria = {
   legalForms: string[];
   page: number;
   discovered: number;
+  provenance?: ImportProvenance;
 };
 
 // Any criteria shape persisted on import_runs.criteria (jsonb).

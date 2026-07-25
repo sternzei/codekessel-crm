@@ -54,7 +54,7 @@ test("co-signed document completes only after both signers sign", async ({
   // employerId, so both signer buttons appear.
   await page.goto("/documents");
   await page.getByRole("link", { name: "Lena Hoffmann" }).click();
-  await page.getByRole("button", { name: "Kostenübersicht" }).click();
+  await page.getByRole("button", { name: "Lehrgangskosten-Nachweis" }).click();
 
   const docCard = page.locator(".note", { hasText: "Kostenübersicht" });
   await expect(docCard.getByText("Vorbefüllt")).toBeVisible();

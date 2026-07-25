@@ -30,6 +30,8 @@ import {
   recordAvailability,
 } from "@/modules/participants/transitions";
 import { ParticipantTransitionError } from "@/modules/participants/status-machine";
+import { ACTIVE_TASK_STATUSES } from "@/modules/tasks/status";
+import { getOrIssueMagicLinkForTask } from "@/modules/tokens/service";
 import {
   isValidBic,
   isValidIban,
@@ -573,6 +575,122 @@ export async function addContactNote(formData: FormData): Promise<void> {
     addNoteRow(tx, session, participantId, body),
   );
   revalidatePath(leadPath(participantId));
+}
+
+// ---------------------------------------------------------------------------
+// Participant magic-link tasks minted on demand from the lead page: consent
+// (DSGVO — the readiness gate requires it before an application can be
+// completed) and document upload. Without these actions nothing in the
+// product could create tasks of these types.
+// ---------------------------------------------------------------------------
+
+type ParticipantTaskKind = "give_consent" | "upload_documents";
+
+/**
+ * Returns the magic-link URL for the participant's OPEN task of the given
+ * kind, creating the task first when none exists. Repeated clicks re-mint the
+ * link on the same task (superseding the old token), never stacking
+ * duplicates — the unique active-task index guards the concurrent-create race.
+ */
+async function mintParticipantTaskLink(
+  session: SessionUser,
+  participantId: string,
+  kind: ParticipantTaskKind,
+  title: string,
+): Promise<string | null> {
+  return withTenant(session.tenantId, async (tx) => {
+    const [participant] = await tx
+      .select({ id: participants.id })
+      .from(participants)
+      .where(eq(participants.id, participantId));
+    if (!participant) return null;
+
+    const openTask = () =>
+      tx
+        .select()
+        .from(tasks)
+        .where(
+          and(
+            eq(tasks.tenantId, session.tenantId),
+            eq(tasks.type, kind),
+            eq(tasks.ownerParticipantId, participantId),
+            inArray(tasks.status, [...ACTIVE_TASK_STATUSES]),
+          ),
+        )
+        .limit(1);
+
+    const [existing] = await openTask();
+    if (existing) return getOrIssueMagicLinkForTask(tx, existing);
+
+    const [task] = await tx
+      .insert(tasks)
+      .values({
+        tenantId: session.tenantId,
+        type: kind,
+        title,
+        status: "open",
+        ownerKind: "participant",
+        ownerParticipantId: participantId,
+        channel: "magic_link",
+        subjectKind: "participant",
+        subjectId: participantId,
+        dueAt: new Date(Date.now() + 72 * 3_600_000),
+        escalationAt: new Date(Date.now() + 120 * 3_600_000),
+      })
+      .onConflictDoNothing()
+      .returning();
+
+    // Lost a concurrent-create race → reuse the winner's task.
+    const taskRow = task ?? (await openTask())[0];
+    if (!taskRow) return null;
+
+    await logActivity(tx, {
+      tenantId: session.tenantId,
+      actorKind: "internal_user",
+      actorUserId: session.id,
+      subjectKind: "task",
+      subjectId: taskRow.id,
+      event: "task_created",
+      meta: { taskType: kind },
+    });
+    return getOrIssueMagicLinkForTask(tx, taskRow);
+  });
+}
+
+export async function requestConsentLink(formData: FormData): Promise<void> {
+  const session = await requireSession();
+  const participantId = z.string().uuid().parse(formData.get("participantId"));
+
+  const url = await mintParticipantTaskLink(
+    session,
+    participantId,
+    "give_consent",
+    "Datenschutz- & Kontakt-Einwilligung erteilen",
+  );
+
+  redirect(
+    url
+      ? `${leadPath(participantId)}?consentLink=${encodeURIComponent(url)}`
+      : leadPath(participantId),
+  );
+}
+
+export async function requestUploadLink(formData: FormData): Promise<void> {
+  const session = await requireSession();
+  const participantId = z.string().uuid().parse(formData.get("participantId"));
+
+  const url = await mintParticipantTaskLink(
+    session,
+    participantId,
+    "upload_documents",
+    "Unterlagen hochladen (Nachweise für den Antrag)",
+  );
+
+  redirect(
+    url
+      ? `${leadPath(participantId)}?uploadLink=${encodeURIComponent(url)}`
+      : leadPath(participantId),
+  );
 }
 
 // ---------------------------------------------------------------------------

@@ -8,7 +8,9 @@ import path from "node:path";
 
 export type SignatureEvidence = {
   signerName: string;
-  ipAddress: string;
+  // Nullable: only recorded when honestly knowable (TRUST_PROXY deployment,
+  // see lib/client-ip) — never a spoofable x-forwarded-for value.
+  ipAddress: string | null;
   documentSha256: string;
   signedAt: Date;
 };

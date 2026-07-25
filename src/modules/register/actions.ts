@@ -2,10 +2,12 @@
 
 import { and, eq, sql } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
+import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { withTenant, type Tx } from "@/db/client";
 import { employers, participants } from "@/db/schema";
+import { requestClientIp } from "@/lib/client-ip";
 import { logActivity } from "@/modules/audit/log";
 import { getAdminSession, getSession } from "@/modules/auth/session";
 import {
@@ -24,6 +26,7 @@ import {
   type BatchItemResult,
   type FinancialColumns,
   type ImportOutcome,
+  type ImportProvenance,
   type ImportRunCriteria,
 } from "./import-run";
 
@@ -76,6 +79,19 @@ function buildLossNote(
 }
 
 /**
+ * Who/where the import was triggered from, persisted on the run's criteria.
+ * The IP is null unless honestly knowable (trusted proxy, see lib/client-ip);
+ * the UA is capped so a huge header never bloats the run row.
+ */
+async function requestProvenance(): Promise<ImportProvenance> {
+  const headerStore = await headers();
+  return {
+    clientIp: requestClientIp(headerStore),
+    userAgent: headerStore.get("user-agent")?.slice(0, 300) ?? null,
+  };
+}
+
+/**
  * Imports one distressed company as a linked employer + a single lead. The lead
  * is the company's current managing director (the person to call); the loss
  * figures land in the lead's eligibility notes as the outreach rationale.
@@ -101,6 +117,7 @@ export async function importCompany(formData: FormData): Promise<void> {
     fiscalYear: strOrNull(formData.get("fiscalYear")),
     employees: numOrNull(formData.get("employees")),
     financialsSource: financialsSourceOrNull(formData.get("financialsSource")),
+    provenance: await requestProvenance(),
   };
 
   const result = await runImport(admin, criteria);
@@ -143,6 +160,7 @@ export async function importCompanies(formData: FormData): Promise<void> {
     legalForms: formData.getAll("legalForms").map(String).filter(Boolean),
     page: numOrNull(formData.get("page")) ?? 1,
     discovered: items.length,
+    provenance: await requestProvenance(),
   };
 
   const stats = await runBatchImport(admin, items, batchCriteria);

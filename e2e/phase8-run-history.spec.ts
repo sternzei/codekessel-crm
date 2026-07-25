@@ -62,6 +62,11 @@ test("register import happy path records a run shown in the pipeline history", a
   await expect(firstImport).toBeVisible();
   await firstImport.click();
 
+  // The import server action calls the external register API — wait for its
+  // redirect (the run row is committed before the redirect is served) instead
+  // of navigating away mid-action.
+  await expect(page).toHaveURL(/\/pipeline\?import=/);
+
   // The import server action writes one import_runs row (source "openregister").
   // The pipeline run-history panel surfaces it with an honest, completed state.
   await page.goto("/pipeline");

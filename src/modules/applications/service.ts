@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import type { DbHandle } from "@/db/client";
 import { applications, participants } from "@/db/schema";
 import { processTransition } from "@/modules/routing/engine";
@@ -104,7 +104,11 @@ export async function changeApplicationStatus(
   const isResponse = ["approved", "rejected", "correction_required"].includes(
     params.to,
   );
-  await tx
+  // Atomic flip: the WHERE pins the status we validated above. A concurrent
+  // transition that already moved the row gets an empty RETURNING — last
+  // write does NOT win; the loser fails loudly instead of double-firing
+  // routing + audit.
+  const [flipped] = await tx
     .update(applications)
     .set({
       status: params.to,
@@ -113,7 +117,16 @@ export async function changeApplicationStatus(
       responseAt: isResponse ? new Date() : application.responseAt,
       responseNote: params.responseNote ?? application.responseNote,
     })
-    .where(eq(applications.id, params.applicationId));
+    .where(
+      and(
+        eq(applications.id, params.applicationId),
+        eq(applications.status, application.status),
+      ),
+    )
+    .returning({ id: applications.id });
+  if (!flipped) {
+    throw new ApplicationTransitionError(application.status, params.to);
+  }
 
   const [participant] = await tx
     .select()

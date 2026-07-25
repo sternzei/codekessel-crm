@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { index, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { index, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { channel, entityKind, ownerKind, taskStatus } from "./enums";
 import { createdAt, tenantId, updatedAt } from "./helpers";
 import { employers } from "./employers";
@@ -45,11 +45,12 @@ export const tasks = pgTable(
   (t) => [
     index("tasks_status_idx").on(t.tenantId, t.status),
     index("tasks_owner_user_idx").on(t.ownerUserId),
-    // Supports the routing/worker idempotency lookup: "is there already an
-    // active task for this (tenant, type, owner, subject)?". Deliberately
-    // NON-unique — see the routing engine (W1.2) / worker (W1.3) for why
-    // dedup is enforced in application code rather than as a hard constraint.
-    index("tasks_active_dedup_idx")
+    // Backs the routing/worker idempotency contract at the DB level: at most
+    // one ACTIVE task per (tenant, type, owner, subject). The app-level check
+    // (engine W1.2) stays for friendly skip-logging; this unique partial
+    // index closes the concurrent-transition race. Rows with NULL subject
+    // never conflict (NULLs are distinct) — same as the app-level rule.
+    uniqueIndex("tasks_active_dedup_idx")
       .on(
         t.tenantId,
         t.type,

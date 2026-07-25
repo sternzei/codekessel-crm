@@ -17,6 +17,7 @@ import {
   contactNotes,
   documents,
   employers,
+  importRuns,
   magicLinkTokens,
   measures,
   messageTemplates,
@@ -57,6 +58,7 @@ async function main() {
   await db.delete(messageTemplates);
   await db.delete(measures);
   await db.delete(employers);
+  await db.delete(importRuns);
   await db.delete(users);
   await db.delete(tenants);
 

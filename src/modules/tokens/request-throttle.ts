@@ -1,4 +1,5 @@
 import { headers } from "next/headers";
+import { rateLimitClientKey } from "@/lib/client-ip";
 import {
   TOKEN_ACTION_LIMIT,
   TOKEN_PAGE_LIMIT,
@@ -11,10 +12,13 @@ import {
 // apply the per-IP magic-link budgets. Kept out of throttle.ts so the pure
 // limiter stays importable from unit tests without pulling in next/headers.
 
-/** Same forwarded-IP heuristic used by the internal auth brute-force guard. */
+/**
+ * Shared trust-boundary resolver (lib/client-ip): x-forwarded-for is only
+ * honored behind TRUST_PROXY=true (LAST entry); otherwise every caller shares
+ * one fail-closed bucket — never a spoofable per-attacker bucket.
+ */
 async function resolveClientIp(): Promise<string> {
-  const headerStore = await headers();
-  return headerStore.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
+  return rateLimitClientKey(await headers());
 }
 
 /** True when this client IP has exhausted the anonymous `/t/*` page budget. */

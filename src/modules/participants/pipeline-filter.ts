@@ -576,7 +576,11 @@ export interface ExportRow {
 }
 
 function csvCell(value: string | null | undefined): string {
-  const text = value ?? "";
+  let text = value ?? "";
+  // Formula-injection guard: a cell starting with = + - @ (or tab/CR) is
+  // evaluated as a formula when opened in Excel/LibreOffice. A leading '
+  // makes spreadsheet apps render the cell as inert text.
+  if (/^[=+\-@\t\r]/.test(text)) text = `'${text}`;
   if (/[",\n\r]/.test(text)) return `"${text.replace(/"/g, '""')}"`;
   return text;
 }

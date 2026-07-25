@@ -36,13 +36,18 @@ export async function confirmSubmission(formData: FormData): Promise<void> {
         return false;
       }
 
+      // Burn first (atomic gate): a lost double-submit race never fires a
+      // duplicate status transition. If the transition below throws, the
+      // whole tx (including the burn) rolls back and the link stays valid.
+      if (!(await completeTaskViaToken(tx, ctx))) return false;
+
       await changeApplicationStatus(tx, {
         applicationId: ctx.task.subjectId,
         to: "submitted",
         actorKind: "employer",
       });
 
-      return completeTaskViaToken(tx, ctx);
+      return true;
     });
   } catch {
     // The submission gate (readiness/transition) or a transient failure must

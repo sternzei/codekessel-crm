@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { withTenant } from "@/db/client";
 import { documents, signatures } from "@/db/schema";
+import { requestClientIp } from "@/lib/client-ip";
 import { logActivity } from "@/modules/audit/log";
 import { processTransition } from "@/modules/routing/engine";
 import {
@@ -47,8 +48,8 @@ export async function signDocument(formData: FormData): Promise<void> {
   if (!tokenSignature) redirect(`/t/${input.token}`);
 
   const headerStore = await headers();
-  const ipAddress =
-    headerStore.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
+  // Audit trail: null unless the IP is honestly knowable (see lib/client-ip).
+  const ipAddress = requestClientIp(headerStore);
 
   const ok = await withTenant(tokenSignature.tenantId, async (tx) => {
     const ctx = await loadTokenContext(tx, input.token);
@@ -68,6 +69,10 @@ export async function signDocument(formData: FormData): Promise<void> {
       .from(documents)
       .where(eq(documents.id, signatureRow.documentId));
     if (!doc) return false;
+
+    // Burn FIRST: the atomic gate. On a concurrent double-submit the loser
+    // stops here — no duplicate artifact, no overwritten signature row.
+    if (!(await completeTaskViaToken(tx, ctx))) return false;
 
     const imageBytes = Buffer.from(
       input.signatureDataUrl.split(",")[1],
@@ -97,10 +102,6 @@ export async function signDocument(formData: FormData): Promise<void> {
         signatureImagePath: imagePath,
       })
       .where(eq(signatures.id, signatureRow.id));
-
-    // This signer's task is done regardless of any co-signers still pending.
-    // On a concurrent double-submit the burn loses the race → stop here.
-    if (!(await completeTaskViaToken(tx, ctx))) return false;
 
     await logActivity(tx, {
       tenantId: tokenSignature.tenantId,

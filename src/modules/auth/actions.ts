@@ -6,6 +6,7 @@ import { redirect } from "next/navigation";
 import { sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db/client";
+import { rateLimitClientKey } from "@/lib/client-ip";
 import {
   clearAttempts,
   isRateLimited,
@@ -37,9 +38,9 @@ type UserRow = {
 
 export async function login(formData: FormData): Promise<void> {
   const headerStore = await headers();
-  const clientIp =
-    headerStore.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
-  const rateKey = `login:${clientIp}`;
+  // Keyed on the proxy-appended client IP only (see lib/client-ip): a
+  // spoofed x-forwarded-for first entry must not mint a fresh bucket.
+  const rateKey = `login:${rateLimitClientKey(headerStore)}`;
   if (isRateLimited(rateKey, LOGIN_OPTS).limited) {
     redirect("/auth/sign-in?error=rate");
   }

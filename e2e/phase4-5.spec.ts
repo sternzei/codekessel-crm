@@ -114,14 +114,14 @@ test("document is generated from central data and canvas-signed", async ({
   // Lena: generate the cost overview (data complete → prefilled).
   await page.goto("/documents");
   await page.getByRole("link", { name: "Lena Hoffmann" }).click();
-  await page.getByRole("button", { name: "Kostenübersicht" }).click();
+  await page.getByRole("button", { name: "Lehrgangskosten-Nachweis" }).click();
   const docCard = page.locator(".note", { hasText: "Kostenübersicht" });
   await expect(docCard.getByText("Vorbefüllt")).toBeVisible();
   await expect(docCard.getByRole("link", { name: "PDF öffnen" })).toBeVisible();
 
   // AcroForm autofill path (mode A): Lena's data is complete.
   await page
-    .getByRole("button", { name: "Teilnehmer-Stammblatt (Autofill)" })
+    .getByRole("button", { name: "Teilnehmer-Stammblatt (Muster)" })
     .click();
   await expect(
     page
@@ -164,7 +164,7 @@ test("document is generated from central data and canvas-signed", async ({
   // Audit trail visible internally; document is signed (session persists).
   await page.goto("/documents");
   await page.getByRole("link", { name: "Lena Hoffmann" }).click();
-  await expect(page.getByText("Signiert")).toBeVisible();
+  await expect(page.getByText("Signiert", { exact: true })).toBeVisible();
   await expect(page.getByText(/✓ Lena Hoffmann/)).toBeVisible();
 });
 
@@ -177,7 +177,7 @@ test("missing data creates a data_missing document plus a clarification task", a
   await page.goto("/documents");
   await page.getByRole("link", { name: "Tarek Aziz" }).click();
   await page
-    .getByRole("button", { name: "Teilnehmer-Stammblatt (Autofill)" })
+    .getByRole("button", { name: "Teilnehmer-Stammblatt (Muster)" })
     .click();
   await expect(
     page

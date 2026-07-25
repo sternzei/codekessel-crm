@@ -237,3 +237,26 @@ test("buildPipelineCsv writes a header and escapes special characters", () => {
   assert.match(lines[1], /"Muster, ""die"" Chefin"/);
   assert.match(lines[1], /Anna/);
 });
+
+test("buildPipelineCsv neutralises formula-leading cells (CSV injection)", () => {
+  const csv = buildPipelineCsv([
+    {
+      firstName: '=HYPERLINK("https://evil.example","x")',
+      lastName: "@SUM(1)",
+      status: "new",
+      city: "-2+3",
+      source: "+cmd",
+      consultantName: null,
+      phone: "+49 30 1",
+      email: "a@b.de",
+      createdAt: new Date("2026-01-02T10:00:00Z"),
+      updatedAt: new Date("2026-01-03T10:00:00Z"),
+    },
+  ]);
+  const line = csv.split("\r\n")[1];
+  assert.match(line, /'=HYPERLINK/);
+  assert.match(line, /'@SUM/);
+  assert.match(line, /'-2\+3/);
+  assert.match(line, /'\+cmd/);
+  assert.ok(line.includes("'+49 30 1"));
+});

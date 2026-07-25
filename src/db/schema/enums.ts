@@ -127,6 +127,7 @@ export const applicationStatus = pgEnum("application_status", [
 
 export const reminderStatus = pgEnum("reminder_status", [
   "scheduled",
+  "sending",
   "sent",
   "failed",
   "cancelled",

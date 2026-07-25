@@ -1,6 +1,6 @@
 "use server";
 
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { withTenant } from "@/db/client";
@@ -222,6 +222,24 @@ export async function createEmployerSetupLink(
       .where(eq(employers.id, employerId));
     if (!employer) return null;
 
+    // Reuse an already-open setup task instead of stacking duplicates —
+    // repeated clicks just re-mint the link (superseding the old token).
+    const [existing] = await tx
+      .select()
+      .from(tasks)
+      .where(
+        and(
+          eq(tasks.tenantId, session.tenantId),
+          eq(tasks.type, "employer_setup"),
+          eq(tasks.ownerEmployerId, employerId),
+          inArray(tasks.status, ["open", "in_progress", "waiting"]),
+        ),
+      )
+      .limit(1);
+    if (existing) {
+      return getOrIssueMagicLinkForTask(tx, existing);
+    }
+
     const [task] = await tx
       .insert(tasks)
       .values({
@@ -237,7 +255,24 @@ export async function createEmployerSetupLink(
         dueAt: new Date(Date.now() + 72 * 3_600_000),
         escalationAt: new Date(Date.now() + 120 * 3_600_000),
       })
+      .onConflictDoNothing()
       .returning({ id: tasks.id });
+
+    // Lost a concurrent-create race → reuse the winner's task.
+    if (!task) {
+      const [winner] = await tx
+        .select()
+        .from(tasks)
+        .where(
+          and(
+            eq(tasks.tenantId, session.tenantId),
+            eq(tasks.type, "employer_setup"),
+            eq(tasks.ownerEmployerId, employerId),
+          ),
+        )
+        .limit(1);
+      return winner ? getOrIssueMagicLinkForTask(tx, winner) : null;
+    }
 
     const link = await issueMagicLink(tx, {
       tenantId: session.tenantId,
