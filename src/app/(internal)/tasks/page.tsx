@@ -3,13 +3,13 @@ import { redirect } from "next/navigation";
 import { withTenant } from "@/db/client";
 import { getSession } from "@/modules/auth/session";
 import { completeTask } from "@/modules/participants/actions-internal";
-import {
-  issueLinkForTask,
-  revokeTaskLink,
-  sendTaskWhatsApp,
-} from "@/modules/tasks/actions";
+import { issueLinkForTask, revokeTaskLink } from "@/modules/tasks/actions";
 import { listOpenTasks } from "@/modules/tasks/queries";
 import { deriveTaskLinkDisplayStatus } from "@/modules/tokens/link-status";
+import {
+  TaskWhatsAppButton,
+  type TaskWhatsAppLabels,
+} from "./task-whatsapp-button";
 
 export const dynamic = "force-dynamic";
 
@@ -28,25 +28,38 @@ const CHANNEL_LABEL: Record<string, string> = {
 
 const WHATSAPP_CHANNELS = new Set(["whatsapp", "magic_link"]);
 
-const WA_MESSAGES: Record<string, string> = {
-  ok: "WhatsApp-Nachricht gesendet.",
-  no_phone: "Keine Telefonnummer hinterlegt — WhatsApp nicht möglich.",
-  no_consent: "Kein WhatsApp-Opt-in — Nachricht nicht gesendet.",
-  not_applicable: "Aufgabe eignet sich nicht für WhatsApp.",
-  failed: "WhatsApp-Versand fehlgeschlagen. Bitte später erneut versuchen.",
-};
+// Deterministic due-date formatting: pin the timezone to Europe/Berlin so the
+// German calendar day is stable regardless of the runtime's ambient TZ (a
+// timestamp near midnight UTC must not render on the wrong day). Built once at
+// module scope.
+const DUE_DATE_FORMATTER = new Intl.DateTimeFormat("de-DE", {
+  timeZone: "Europe/Berlin",
+  day: "2-digit",
+  month: "2-digit",
+  year: "numeric",
+});
 
 export default async function TasksPage({
   searchParams,
 }: {
-  searchParams: Promise<{ link?: string; wa?: string; revoked?: string }>;
+  searchParams: Promise<{ link?: string; revoked?: string }>;
 }) {
   const session = await getSession();
   if (!session) redirect("/auth/sign-in");
 
   const t = await getTranslations("tasks");
-  const { link, wa, revoked } = await searchParams;
-  const waMessage = wa ? WA_MESSAGES[wa] : undefined;
+  const waLabels: TaskWhatsAppLabels = {
+    send: t("whatsapp.send"),
+    opening: t("whatsapp.opening"),
+    opened: t("whatsapp.opened"),
+    open: t("whatsapp.open"),
+    errors: {
+      no_phone: t("whatsapp.errors.no_phone"),
+      not_applicable: t("whatsapp.errors.not_applicable"),
+      failed: t("whatsapp.errors.failed"),
+    },
+  };
+  const { link, revoked } = await searchParams;
   const revokedMessage =
     revoked === undefined
       ? undefined
@@ -63,15 +76,6 @@ export default async function TasksPage({
         <h1>{t("title")}</h1>
         <p>{t("subtitle")}</p>
       </header>
-
-      {waMessage ? (
-        <p
-          className={wa === "ok" ? "info-banner" : "gate-banner"}
-          style={{ marginBottom: "var(--space-6)" }}
-        >
-          {waMessage}
-        </p>
-      ) : null}
 
       {revokedMessage ? (
         <p
@@ -119,7 +123,7 @@ export default async function TasksPage({
                     {OWNER_LABEL[task.ownerKind]}
                     {task.ownerName ? ` · ${task.ownerName}` : ""}
                     {task.dueAt
-                      ? ` · fällig ${task.dueAt.toLocaleDateString("de-DE")}`
+                      ? ` · fällig ${DUE_DATE_FORMATTER.format(task.dueAt)}`
                       : ""}
                   </div>
                 </div>
@@ -146,12 +150,7 @@ export default async function TasksPage({
                   <span />
                 )}
                 {canWhatsApp ? (
-                  <form action={sendTaskWhatsApp}>
-                    <input type="hidden" name="taskId" value={task.id} />
-                    <button type="submit" className="button button--sm button--ghost">
-                      WhatsApp senden
-                    </button>
-                  </form>
+                  <TaskWhatsAppButton taskId={task.id} labels={waLabels} />
                 ) : (
                   <span />
                 )}

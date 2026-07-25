@@ -55,7 +55,18 @@
   "tasks": {
     "title": "Aufgaben",
     "subtitle": "Offene Aufgaben nach Verantwortlichen",
-    "empty": "Keine offenen Aufgaben."
+    "empty": "Keine offenen Aufgaben.",
+    "whatsapp": {
+      "send": "WhatsApp öffnen",
+      "opening": "WhatsApp wird geöffnet …",
+      "opened": "WhatsApp geöffnet",
+      "open": "In WhatsApp öffnen",
+      "errors": {
+        "no_phone": "Keine Telefonnummer hinterlegt — WhatsApp nicht möglich.",
+        "not_applicable": "Aufgabe eignet sich nicht für WhatsApp.",
+        "failed": "WhatsApp konnte nicht geöffnet werden. Bitte später erneut versuchen."
+      }
+    }
   },
   "placeholder": {
     "phase": "Wird in Phase {phase} umgesetzt.",

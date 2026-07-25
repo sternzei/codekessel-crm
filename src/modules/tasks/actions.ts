@@ -8,7 +8,9 @@ import { consentRecords, employers, tasks } from "@/db/schema";
 import { logActivity } from "@/modules/audit/log";
 import { getSession } from "@/modules/auth/session";
 import { resolveAdapterMode } from "@/modules/messaging/adapters";
+import { buildWaMeUrl, toWaMeNumber } from "@/modules/messaging/click-to-chat";
 import { resolveRecipient, sendTaskMessage } from "@/modules/messaging/send";
+import { renderTemplate } from "@/modules/messaging/templates";
 import { normalizePhone } from "@/modules/participants/phone";
 import {
   getOrIssueMagicLinkForTask,
@@ -203,6 +205,84 @@ export async function sendTaskWhatsApp(formData: FormData): Promise<void> {
   redirect(`/tasks?wa=${outcome}`);
 }
 
+// Result of building a WhatsApp click-to-chat deep link. Returned (not
+// redirected) because the caller is a client component that opens the URL.
+type WhatsAppClickToChatResult =
+  | { ok: true; url: string }
+  | { ok: false; reason: "no_phone" | "not_applicable" | "failed" };
+
+/**
+ * Builds a WhatsApp *click-to-chat* (wa.me) deep link for a task so the
+ * consultant can open WhatsApp Web / the app and send the prefilled message
+ * from their OWN account. Unlike {@link sendTaskWhatsApp} (the automated
+ * Business-API path) this never dispatches anything: click-to-chat cannot
+ * confirm a send, so we only log that WhatsApp was *opened*.
+ *
+ * Tenant-scoped + session-guarded like every task action. Resolves the
+ * recipient, requires a phone, mints a fresh magic link for magic_link tasks
+ * (only the hash is stored, so we always re-issue, superseding any live token),
+ * renders the existing `task_<type>` template body (with the link), and returns
+ * the wa.me URL. No consent gate: opening a draft is the consultant's own
+ * manual action, not a business-initiated automated send.
+ */
+export async function buildWhatsAppClickToChat(
+  taskId: string,
+): Promise<WhatsAppClickToChatResult> {
+  const session = await getSession();
+  if (!session) redirect("/auth/sign-in");
+
+  const parsedTaskId = z.string().uuid().parse(taskId);
+
+  return withTenant<WhatsAppClickToChatResult>(session.tenantId, async (tx) => {
+    const [task] = await tx.select().from(tasks).where(eq(tasks.id, parsedTaskId));
+    if (!task || task.ownerKind === "internal_user") {
+      return { ok: false, reason: "not_applicable" };
+    }
+
+    const ownerKind = task.ownerKind;
+    const subjectId =
+      ownerKind === "participant"
+        ? task.ownerParticipantId
+        : task.ownerEmployerId;
+    if (!subjectId) return { ok: false, reason: "not_applicable" };
+
+    const recipient = await resolveRecipient(tx, ownerKind, subjectId);
+    if (!recipient) return { ok: false, reason: "not_applicable" };
+
+    const phone = toWaMeNumber(recipient.phone ?? "");
+    if (!phone) return { ok: false, reason: "no_phone" };
+
+    // magic-link tasks carry a freshly minted /t/{jwt}; other task types have
+    // no {{link}} placeholder in their template.
+    const link =
+      task.channel === "magic_link"
+        ? await getOrIssueMagicLinkForTask(tx, task)
+        : null;
+
+    const rendered = await renderTemplate(tx, `task_${task.type}`, "whatsapp", {
+      firstName: recipient.displayName ?? "",
+      title: task.title,
+      ...(link ? { link } : {}),
+    });
+
+    const url = buildWaMeUrl({ phone, text: rendered.body });
+
+    // Honest audit: we can only prove the consultant OPENED WhatsApp with a
+    // prefilled draft — never that a message was actually delivered.
+    await logActivity(tx, {
+      tenantId: session.tenantId,
+      actorKind: "internal_user",
+      actorUserId: session.id,
+      subjectKind: "task",
+      subjectId: task.id,
+      event: "whatsapp_click_to_chat_opened",
+      meta: { recipientKind: ownerKind, hasLink: Boolean(link) },
+    });
+
+    return { ok: true, url };
+  });
+}
+
 /**
  * Starts the employer setup assistant: creates the employer_setup task and
  * mints its magic link for the consultant to send or copy.
@@ -268,8 +348,10 @@ export async function createEmployerSetupLink(
             eq(tasks.tenantId, session.tenantId),
             eq(tasks.type, "employer_setup"),
             eq(tasks.ownerEmployerId, employerId),
+            inArray(tasks.status, ["open", "in_progress", "waiting"]),
           ),
         )
+        .orderBy(desc(tasks.createdAt))
         .limit(1);
       return winner ? getOrIssueMagicLinkForTask(tx, winner) : null;
     }
