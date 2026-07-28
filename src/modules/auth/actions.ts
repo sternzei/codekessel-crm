@@ -13,6 +13,7 @@ import {
   recordFailure,
 } from "@/lib/rate-limit";
 import { createSession, destroySession } from "./session";
+import type { AppRole } from "./authorization";
 
 // Brute-force guard: cap *failed* login attempts per client IP within a
 // window. A successful login clears the counter, so legitimate users are
@@ -31,7 +32,7 @@ type UserRow = {
   tenant_id: string;
   email: string;
   name: string;
-  role: "consultant" | "admin";
+  role: AppRole;
   password_hash: string | null;
   active: boolean;
 };

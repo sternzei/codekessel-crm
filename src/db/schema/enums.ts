@@ -3,7 +3,7 @@ import { pgEnum } from "drizzle-orm/pg-core";
 // Every enum mirrors a status list from the product concept (README).
 // Transitions on these enums are the events that drive the rules engine.
 
-export const userRole = pgEnum("user_role", ["consultant", "admin"]);
+export const userRole = pgEnum("user_role", ["consultant", "manager", "admin"]);
 
 export const participantStatus = pgEnum("participant_status", [
   "new",

@@ -46,6 +46,11 @@ export const outboundMessages = pgTable(
     // ordered params at dispatch time.
     variables: jsonb("variables").$type<Record<string, string>>(),
     status: outboundMessageStatus("status").notNull().default("pending_approval"),
+    // Null denotes a system-generated message. Manual Cloud API drafts record
+    // their creator so separation of duties can be enforced at approval time.
+    createdByUserId: uuid("created_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
     // Who approved/rejected and when — the human accountability trail.
     approvedByUserId: uuid("approved_by_user_id").references(() => users.id),
     approvedAt: timestamp("approved_at", { withTimezone: true }),
@@ -66,5 +71,6 @@ export const outboundMessages = pgTable(
     // Backs the Postausgang list (pending rows per tenant, newest first).
     index("outbound_messages_status_idx").on(t.tenantId, t.status),
     index("outbound_messages_task_idx").on(t.tenantId, t.taskId),
+    index("outbound_messages_creator_idx").on(t.tenantId, t.createdByUserId),
   ],
 );

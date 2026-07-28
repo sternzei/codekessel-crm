@@ -1,6 +1,10 @@
 import { SignJWT, jwtVerify } from "jose";
 import { cookies } from "next/headers";
+import { cache } from "react";
+import { withTenant } from "@/db/client";
 import { env } from "@/lib/env";
+import type { AppRole } from "./authorization";
+import { resolveActiveSessionUser } from "./current-user";
 
 // Lean, self-contained session handling for internal users (consultant/admin).
 // Deliberately not Auth.js: internal-only credentials auth on Next 16 needs
@@ -16,7 +20,7 @@ export type SessionUser = {
   tenantId: string;
   email: string;
   name: string;
-  role: "consultant" | "admin";
+  role: AppRole;
 };
 
 export async function createSession(user: SessionUser): Promise<void> {
@@ -43,7 +47,7 @@ export async function createSession(user: SessionUser): Promise<void> {
   });
 }
 
-export async function getSession(): Promise<SessionUser | null> {
+const getCachedSession = cache(async (): Promise<SessionUser | null> => {
   const store = await cookies();
   const token = store.get(SESSION_COOKIE)?.value;
   if (!token) return null;
@@ -55,21 +59,25 @@ export async function getSession(): Promise<SessionUser | null> {
       typeof payload.tid !== "string" ||
       typeof payload.email !== "string" ||
       typeof payload.name !== "string" ||
-      (payload.role !== "consultant" && payload.role !== "admin")
+      (payload.role !== "consultant" &&
+        payload.role !== "manager" &&
+        payload.role !== "admin")
     ) {
       return null;
     }
-    return {
+    const identity = {
       id: payload.sub,
       tenantId: payload.tid,
-      email: payload.email,
-      name: payload.name,
-      role: payload.role,
     };
+    return withTenant(identity.tenantId, (tx) =>
+      resolveActiveSessionUser(tx, identity),
+    );
   } catch {
     return null;
   }
-}
+});
+
+export const getSession = (): Promise<SessionUser | null> => getCachedSession();
 
 export async function destroySession(): Promise<void> {
   const store = await cookies();
@@ -77,10 +85,9 @@ export async function destroySession(): Promise<void> {
 }
 
 /**
- * Returns the session only if the user is an admin. The role lives in the
- * signed session cookie, so this is a real authorization check, not a UI hint.
- * Admin-only surfaces (e.g. the OpenRegister import) call this in the server
- * action itself — never rely on hiding a nav link alone.
+ * Returns the session only if the user's current database role is admin.
+ * OpenRegister import is intentionally admin-only by product policy; managers
+ * are excluded. Never rely on hiding its navigation link alone.
  */
 export async function getAdminSession(): Promise<SessionUser | null> {
   const session = await getSession();

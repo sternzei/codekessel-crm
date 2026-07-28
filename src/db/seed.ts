@@ -69,7 +69,7 @@ async function main() {
   const tenantId = tenant.id;
 
   const passwordHash = await hash("demo1234", 10);
-  const [, consultant] = await db
+  const [, , consultant] = await db
     .insert(users)
     .values([
       {
@@ -77,6 +77,13 @@ async function main() {
         email: "admin@demo.de",
         name: "Anna Adler",
         role: "admin" as const,
+        passwordHash,
+      },
+      {
+        tenantId,
+        email: "leitung@demo.de",
+        name: "Mara Manager",
+        role: "manager" as const,
         passwordHash,
       },
       {
