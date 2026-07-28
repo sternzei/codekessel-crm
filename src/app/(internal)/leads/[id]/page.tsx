@@ -11,6 +11,7 @@ import {
 } from "@/modules/participants/detail";
 import {
   addContactNote,
+  assignLeads,
   inviteAptitudeTest,
   requestConsentLink,
   requestUploadLink,
@@ -44,18 +45,32 @@ export default async function LeadDetailPage({
     badata?: string;
     consentLink?: string;
     uploadLink?: string;
+    access?: "must_claim" | "forbidden";
+    assignment?: "saved" | "forbidden";
   }>;
 }) {
   const session = await getSession();
   if (!session) redirect("/auth/sign-in");
 
   const { id } = await params;
-  const { gate, undo, transition, badata, consentLink, uploadLink } =
+  const {
+    gate,
+    undo,
+    transition,
+    badata,
+    consentLink,
+    uploadLink,
+    access,
+    assignment,
+  } =
     await searchParams;
   const tStatus = await getTranslations("status.participant");
 
   const data = await withTenant(session.tenantId, async (tx) => {
-    const detail = await getLeadDetail(tx, id);
+    const detail = await getLeadDetail(tx, id, {
+      userId: session.id,
+      role: session.role,
+    });
     if (!detail) return null;
     const [employerOptions, measureOptions] = await Promise.all([
       listEmployerOptions(tx),
@@ -84,6 +99,37 @@ export default async function LeadDetailPage({
           {p.email ?? "keine E-Mail"} · Quelle: {p.source ?? "—"}
         </p>
       </header>
+
+      {access || assignment === "forbidden" ? (
+        <p
+          className="gate-banner"
+          role="alert"
+          style={{ marginBottom: "var(--space-6)" }}
+        >
+          {access === "must_claim"
+            ? "Bitte übernehmen Sie diesen Lead, bevor Sie Daten oder Aufgaben bearbeiten."
+            : "Sie dürfen diesen Lead nicht ändern oder einer anderen Beratung zuweisen."}
+        </p>
+      ) : null}
+
+      {session.role === "consultant" && p.assignedConsultantId === null ? (
+        <form
+          action={assignLeads}
+          className="info-banner"
+          style={{ marginBottom: "var(--space-6)" }}
+        >
+          <input type="hidden" name="participantId" value={p.id} />
+          <input type="hidden" name="consultant" value={session.id} />
+          <input type="hidden" name="returnTo" value={`/leads/${p.id}`} />
+          <p>
+            Dieser Lead ist noch nicht zugewiesen. Übernehmen Sie ihn, bevor Sie
+            Änderungen vornehmen.
+          </p>
+          <button type="submit" className="button button--sm">
+            Lead übernehmen
+          </button>
+        </form>
+      ) : null}
 
       {gate === "1" ? (
         <p className="gate-banner" style={{ marginBottom: "var(--space-6)" }}>

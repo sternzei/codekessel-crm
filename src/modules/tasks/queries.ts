@@ -1,6 +1,8 @@
-import { asc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import type { DbHandle } from "@/db/client";
 import { employers, participants, tasks, users } from "@/db/schema";
+import type { ParticipantAccessContext } from "@/modules/auth/authorization";
+import { buildTaskAccessCondition } from "@/modules/auth/task-scope";
 
 export type OpenTask = {
   id: string;
@@ -20,7 +22,10 @@ export type OpenTask = {
   revokedLinkCount: number;
 };
 
-export async function listOpenTasks(tx: DbHandle): Promise<OpenTask[]> {
+export async function listOpenTasks(
+  tx: DbHandle,
+  context: ParticipantAccessContext,
+): Promise<OpenTask[]> {
   return tx
     .select({
       id: tasks.id,
@@ -56,6 +61,11 @@ export async function listOpenTasks(tx: DbHandle): Promise<OpenTask[]> {
     .leftJoin(users, eq(tasks.ownerUserId, users.id))
     .leftJoin(participants, eq(tasks.ownerParticipantId, participants.id))
     .leftJoin(employers, eq(tasks.ownerEmployerId, employers.id))
-    .where(inArray(tasks.status, ["open", "in_progress", "waiting", "escalated"]))
+    .where(
+      and(
+        inArray(tasks.status, ["open", "in_progress", "waiting", "escalated"]),
+        buildTaskAccessCondition(context),
+      ),
+    )
     .orderBy(asc(tasks.dueAt));
 }

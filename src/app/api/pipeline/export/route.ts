@@ -23,7 +23,10 @@ export async function GET(request: Request): Promise<Response> {
   const filter = parsePipelineFilter(raw);
 
   const rows: ExportRow[] = await withTenant(session.tenantId, (tx) =>
-    listPipelineForExport(tx, filter),
+    listPipelineForExport(tx, filter, {
+      userId: session.id,
+      role: session.role,
+    }),
   );
   const csv = buildPipelineCsv(rows);
   const today = new Date().toISOString().slice(0, 10);

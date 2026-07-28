@@ -1,5 +1,6 @@
 import { getTranslations } from "next-intl/server";
 import { redirect } from "next/navigation";
+import { HelpLink } from "@/components/help/help-link";
 import { withTenant } from "@/db/client";
 import { getSession } from "@/modules/auth/session";
 import { completeTask } from "@/modules/participants/actions-internal";
@@ -42,7 +43,11 @@ const DUE_DATE_FORMATTER = new Intl.DateTimeFormat("de-DE", {
 export default async function TasksPage({
   searchParams,
 }: {
-  searchParams: Promise<{ link?: string; revoked?: string }>;
+  searchParams: Promise<{
+    link?: string;
+    revoked?: string;
+    access?: "must_claim" | "forbidden";
+  }>;
 }) {
   const session = await getSession();
   if (!session) redirect("/auth/sign-in");
@@ -56,10 +61,12 @@ export default async function TasksPage({
     errors: {
       no_phone: t("whatsapp.errors.no_phone"),
       not_applicable: t("whatsapp.errors.not_applicable"),
+      must_claim: "Bitte übernehmen Sie den Lead vor dieser Aktion.",
+      forbidden: "Für diese Aufgabe fehlt Ihnen die Berechtigung.",
       failed: t("whatsapp.errors.failed"),
     },
   };
-  const { link, revoked } = await searchParams;
+  const { link, revoked, access } = await searchParams;
   const revokedMessage =
     revoked === undefined
       ? undefined
@@ -67,7 +74,7 @@ export default async function TasksPage({
         ? `Aufgaben-Link widerrufen (${Number(revoked)}). Der alte Link ist ab sofort ungültig.`
         : "Kein aktiver Link zum Widerrufen vorhanden.";
   const openTasks = await withTenant(session.tenantId, (tx) =>
-    listOpenTasks(tx),
+    listOpenTasks(tx, { userId: session.id, role: session.role }),
   );
 
   return (
@@ -75,6 +82,7 @@ export default async function TasksPage({
       <header className="page-header">
         <h1>{t("title")}</h1>
         <p>{t("subtitle")}</p>
+        <HelpLink topic="magic-link" label="Hilfe: Magic Links & WhatsApp" />
       </header>
 
       {revokedMessage ? (
@@ -83,6 +91,25 @@ export default async function TasksPage({
           style={{ marginBottom: "var(--space-6)" }}
         >
           {revokedMessage}
+        </p>
+      ) : null}
+
+      {access ? (
+        <p
+          className="gate-banner"
+          role="alert"
+          style={{ marginBottom: "var(--space-6)" }}
+        >
+          {access === "must_claim"
+            ? "Bitte übernehmen Sie den nicht zugewiesenen Lead, bevor Sie diese Aufgabe bearbeiten."
+            : "Sie dürfen diese Aufgabe nicht bearbeiten."}
+        </p>
+      ) : null}
+
+      {session.role === "consultant" ? (
+        <p className="info-banner" style={{ marginBottom: "var(--space-6)" }}>
+          Reine Arbeitgeber-Aufgaben werden ausschließlich von Teamleitung oder
+          Administration bearbeitet.
         </p>
       ) : null}
 

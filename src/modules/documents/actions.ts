@@ -7,6 +7,8 @@ import { z } from "zod";
 import { withTenant } from "@/db/client";
 import { documents, signatures } from "@/db/schema";
 import { logActivity } from "@/modules/audit/log";
+import { canManageTenantRecords } from "@/modules/auth/authorization";
+import { resolveParticipantWriteAccess } from "@/modules/auth/participant-scope";
 import { getSession } from "@/modules/auth/session";
 import { processTransition } from "@/modules/routing/engine";
 import { canRequestSigner } from "@/modules/signatures/progress";
@@ -149,6 +151,13 @@ export async function generateDocument(formData: FormData): Promise<void> {
     .parse(formData.get("type"));
 
   await withTenant(session.tenantId, async (tx) => {
+    const access = await resolveParticipantWriteAccess(tx, participantId, {
+      userId: session.id,
+      role: session.role,
+    });
+    if (access !== "allowed") {
+      redirect(`/leads/${participantId}?access=${access}`);
+    }
     const data = await collectApplicationData(tx, participantId);
     if (!data) return;
 
@@ -223,6 +232,17 @@ export async function requestSignature(formData: FormData): Promise<void> {
       .from(documents)
       .where(eq(documents.id, documentId));
     if (!doc || !doc.filePath) return;
+    if (doc.participantId) {
+      const access = await resolveParticipantWriteAccess(
+        tx,
+        doc.participantId,
+        { userId: session.id, role: session.role },
+      );
+      if (access !== "allowed") {
+        redirect(`/leads/${doc.participantId}?access=${access}`);
+      }
+    }
+    if (!doc.participantId && !canManageTenantRecords(session.role)) return;
     // Nothing left to request once the document is fully signed.
     if (doc.status === "signed") return;
 

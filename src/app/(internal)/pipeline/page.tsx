@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { getTranslations } from "next-intl/server";
 import { redirect } from "next/navigation";
+import { HelpLink } from "@/components/help/help-link";
 import { PipelineFilters } from "@/components/internal/PipelineFilters";
 import {
   PipelineTable,
@@ -138,6 +139,7 @@ export default async function PipelinePage({
   const sp = await searchParams;
   const listParams = parsePipelineListParams(sp);
   const { filter, page, pageSize, sort, dir } = listParams;
+  const accessContext = { userId: session.id, role: session.role };
 
   // Stale-lead cutoff: end of the day STALE_NEW_DAYS ago. The alert query and
   // the alert's link both use this exact instant so their counts agree.
@@ -158,14 +160,14 @@ export default async function PipelinePage({
       consultants,
       sources,
     ] = await Promise.all([
-      aggregateByStatus(tx, filter),
-      aggregateCoverage(tx, filter),
-      listPipelinePage(tx, listParams),
-      getPipelineAlerts(tx, staleCutoff),
+      aggregateByStatus(tx, filter, accessContext),
+      aggregateCoverage(tx, filter, accessContext),
+      listPipelinePage(tx, listParams, accessContext),
+      getPipelineAlerts(tx, staleCutoff, accessContext),
       getImportFreshness(tx),
       listImportRuns(tx),
-      listConsultants(tx),
-      listSources(tx),
+      listConsultants(tx, accessContext),
+      listSources(tx, accessContext),
     ]);
     return {
       counts,
@@ -280,11 +282,13 @@ export default async function PipelinePage({
         <div>
           <h1>{t("title")}</h1>
           <p>{t("subtitle")}</p>
+          <HelpLink topic="daily-consultant" label="Hilfe: Tagesroutine & Claim" />
         </div>
         <div className="quick-actions">
           <Link href="/leads/new" className="button button--sm">
             + Neuer Lead
           </Link>
+          {/* Product policy: OpenRegister import is admin-only, not manager-wide. */}
           {session.role === "admin" ? (
             <Link href="/leads/import" className="button button--sm button--ghost">
               Register-Import
@@ -520,6 +524,7 @@ export default async function PipelinePage({
           <PipelineTable
             rows={rows}
             consultants={data.consultants}
+            currentRole={session.role}
             sort={sort}
             dir={dir}
           />

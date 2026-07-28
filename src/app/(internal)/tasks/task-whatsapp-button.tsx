@@ -11,6 +11,8 @@ export type TaskWhatsAppLabels = {
   errors: {
     no_phone: string;
     not_applicable: string;
+    must_claim: string;
+    forbidden: string;
     failed: string;
   };
 };

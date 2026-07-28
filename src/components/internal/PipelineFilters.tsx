@@ -3,6 +3,7 @@
 import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
 import type { ConsultantOption } from "@/modules/participants/pipeline";
+import { getRoleLabel } from "@/modules/auth/authorization";
 import type {
   ParticipantStatus,
 } from "@/modules/participants/queries";
@@ -96,7 +97,9 @@ export function PipelineFilters({
             {consultants.map((consultant) => (
               <option key={consultant.id} value={consultant.id}>
                 {consultant.name}
-                {consultant.role === "admin" ? " (Admin)" : ""}
+                {consultant.role === "consultant"
+                  ? ""
+                  : ` (${getRoleLabel(consultant.role)})`}
               </option>
             ))}
           </select>

@@ -8,6 +8,7 @@ import { z } from "zod";
 import { withTenant } from "@/db/client";
 import { applications, documents, participants } from "@/db/schema";
 import { logActivity } from "@/modules/audit/log";
+import { resolveParticipantWriteAccess } from "@/modules/auth/participant-scope";
 import { getSession } from "@/modules/auth/session";
 import { processTransition } from "@/modules/routing/engine";
 import { buildStorageKey, getStorage } from "@/modules/storage";
@@ -29,6 +30,13 @@ export async function createApplication(formData: FormData): Promise<void> {
     .parse(formData.get("applicantType"));
 
   await withTenant(session.tenantId, async (tx) => {
+    const access = await resolveParticipantWriteAccess(tx, participantId, {
+      userId: session.id,
+      role: session.role,
+    });
+    if (access !== "allowed") {
+      redirect(`/leads/${participantId}?access=${access}`);
+    }
     const [participant] = await tx
       .select()
       .from(participants)
@@ -96,6 +104,19 @@ export async function setApplicationStatus(formData: FormData): Promise<void> {
     .parse(formData.get("responseNote") ?? undefined);
 
   await withTenant(session.tenantId, async (tx) => {
+    const [application] = await tx
+      .select({ participantId: applications.participantId })
+      .from(applications)
+      .where(eq(applications.id, applicationId));
+    if (!application) return;
+    const access = await resolveParticipantWriteAccess(
+      tx,
+      application.participantId,
+      { userId: session.id, role: session.role },
+    );
+    if (access !== "allowed") {
+      redirect(`/leads/${application.participantId}?access=${access}`);
+    }
     try {
       await changeApplicationStatus(tx, {
         applicationId,
@@ -130,14 +151,21 @@ export async function exportApplicationPackage(
   const applicationId = z.string().uuid().parse(formData.get("applicationId"));
 
   await withTenant(session.tenantId, async (tx) => {
-    const result = await buildApplicationPackage(tx, applicationId);
-    if (!result) return;
-
     const [application] = await tx
       .select()
       .from(applications)
       .where(eq(applications.id, applicationId));
     if (!application) return;
+    const access = await resolveParticipantWriteAccess(
+      tx,
+      application.participantId,
+      { userId: session.id, role: session.role },
+    );
+    if (access !== "allowed") {
+      redirect(`/leads/${application.participantId}?access=${access}`);
+    }
+    const result = await buildApplicationPackage(tx, applicationId);
+    if (!result) return;
 
     const filePath = await getStorage().put({
       key: buildStorageKey({ prefix: "documents", extension: "pdf" }),

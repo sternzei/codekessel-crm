@@ -6,6 +6,8 @@ import { z } from "zod";
 import { withTenant } from "@/db/client";
 import { consentRecords, employers, tasks } from "@/db/schema";
 import { logActivity } from "@/modules/audit/log";
+import { canManageTenantRecords } from "@/modules/auth/authorization";
+import { resolveTaskWriteAccess } from "@/modules/auth/task-scope";
 import { getSession } from "@/modules/auth/session";
 import { resolveAdapterMode } from "@/modules/messaging/adapters";
 import { buildWaMeUrl, toWaMeNumber } from "@/modules/messaging/click-to-chat";
@@ -33,6 +35,11 @@ export async function issueLinkForTask(formData: FormData): Promise<void> {
   const taskId = z.string().uuid().parse(formData.get("taskId"));
 
   const url = await withTenant(session.tenantId, async (tx) => {
+    const access = await resolveTaskWriteAccess(tx, taskId, {
+      userId: session.id,
+      role: session.role,
+    });
+    if (access !== "allowed") redirect(`/tasks?access=${access}`);
     const [task] = await tx.select().from(tasks).where(eq(tasks.id, taskId));
     if (!task) return null;
 
@@ -69,6 +76,11 @@ export async function revokeTaskLink(formData: FormData): Promise<void> {
   const taskId = z.string().uuid().parse(formData.get("taskId"));
 
   const revokedCount = await withTenant(session.tenantId, async (tx) => {
+    const access = await resolveTaskWriteAccess(tx, taskId, {
+      userId: session.id,
+      role: session.role,
+    });
+    if (access !== "allowed") redirect(`/tasks?access=${access}`);
     const [task] = await tx.select().from(tasks).where(eq(tasks.id, taskId));
     if (!task) return 0;
 
@@ -100,6 +112,8 @@ type WhatsAppSendOutcome =
   | "queued"
   | "no_phone"
   | "no_consent"
+  | "must_claim"
+  | "forbidden"
   | "not_applicable"
   | "failed";
 
@@ -144,6 +158,11 @@ export async function sendTaskWhatsApp(formData: FormData): Promise<void> {
   const outcome = await withTenant<WhatsAppSendOutcome>(
     session.tenantId,
     async (tx) => {
+      const access = await resolveTaskWriteAccess(tx, taskId, {
+        userId: session.id,
+        role: session.role,
+      });
+      if (access !== "allowed") return access;
       const [task] = await tx.select().from(tasks).where(eq(tasks.id, taskId));
       if (!task || task.ownerKind === "internal_user") return "not_applicable";
 
@@ -184,6 +203,7 @@ export async function sendTaskWhatsApp(formData: FormData): Promise<void> {
         channel: "whatsapp",
         templateKey: `task_${task.type}`,
         recipient,
+        createdByUserId: session.id,
         variables: {
           firstName: recipient.displayName ?? "",
           title: task.title,
@@ -212,7 +232,15 @@ export async function sendTaskWhatsApp(formData: FormData): Promise<void> {
 // redirected) because the caller is a client component that opens the URL.
 type WhatsAppClickToChatResult =
   | { ok: true; url: string }
-  | { ok: false; reason: "no_phone" | "not_applicable" | "failed" };
+  | {
+      ok: false;
+      reason:
+        | "no_phone"
+        | "not_applicable"
+        | "must_claim"
+        | "forbidden"
+        | "failed";
+    };
 
 /**
  * Builds a WhatsApp *click-to-chat* (wa.me) deep link for a task so the
@@ -237,6 +265,11 @@ export async function buildWhatsAppClickToChat(
   const parsedTaskId = z.string().uuid().parse(taskId);
 
   return withTenant<WhatsAppClickToChatResult>(session.tenantId, async (tx) => {
+    const access = await resolveTaskWriteAccess(tx, parsedTaskId, {
+      userId: session.id,
+      role: session.role,
+    });
+    if (access !== "allowed") return { ok: false, reason: access };
     const [task] = await tx.select().from(tasks).where(eq(tasks.id, parsedTaskId));
     if (!task || task.ownerKind === "internal_user") {
       return { ok: false, reason: "not_applicable" };
@@ -295,6 +328,7 @@ export async function createEmployerSetupLink(
 ): Promise<void> {
   const session = await getSession();
   if (!session) redirect("/auth/sign-in");
+  if (!canManageTenantRecords(session.role)) redirect("/employers?forbidden=1");
 
   const employerId = z.string().uuid().parse(formData.get("employerId"));
 

@@ -1,6 +1,6 @@
 "use server";
 
-import { and, desc, eq, gte, inArray } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, isNull } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { z } from "zod";
@@ -16,6 +16,9 @@ import {
   users,
 } from "@/db/schema";
 import { logActivity } from "@/modules/audit/log";
+import { canManageTenantRecords } from "@/modules/auth/authorization";
+import { resolveParticipantWriteAccess } from "@/modules/auth/participant-scope";
+import { resolveTaskWriteAccess } from "@/modules/auth/task-scope";
 import { getSession, type SessionUser } from "@/modules/auth/session";
 import { processTransition } from "@/modules/routing/engine";
 import { resolveAptitudeTestUrl } from "@/modules/aptitude-tests/config";
@@ -58,6 +61,20 @@ async function requireSession(): Promise<SessionUser> {
 function leadPath(id: string): string {
   return `/leads/${id}`;
 }
+
+const requireLeadWrite = async (
+  tx: Tx,
+  session: SessionUser,
+  participantId: string,
+): Promise<void> => {
+  const decision = await resolveParticipantWriteAccess(tx, participantId, {
+    userId: session.id,
+    role: session.role,
+  });
+  if (decision !== "allowed") {
+    redirect(`${leadPath(participantId)}?access=${decision}`);
+  }
+};
 
 // ---------------------------------------------------------------------------
 // Lead creation
@@ -131,11 +148,22 @@ const bulkAssignSchema = z.object({
   returnTo: z.string().optional(),
 });
 
-/** Only redirect to same-origin pipeline URLs (never an open redirect). */
-function safePipelineReturn(returnTo: string | undefined): string {
-  if (returnTo && returnTo.startsWith("/pipeline")) return returnTo;
+/** Only redirect to known internal assignment surfaces (never an open redirect). */
+function safeAssignmentReturn(returnTo: string | undefined): string {
+  if (!returnTo) return "/pipeline";
+  if (
+    returnTo.startsWith("/pipeline") ||
+    /^\/leads\/[0-9a-f-]{36}$/i.test(returnTo)
+  ) {
+    return returnTo;
+  }
   return "/pipeline";
 }
+
+const appendAssignmentResult = (path: string, result: string): string => {
+  const separator = path.includes("?") ? "&" : "?";
+  return `${path}${separator}assignment=${result}`;
+};
 
 export async function assignLeads(formData: FormData): Promise<void> {
   const session = await requireSession();
@@ -144,41 +172,77 @@ export async function assignLeads(formData: FormData): Promise<void> {
     consultant: formData.get("consultant"),
     returnTo: formData.get("returnTo")?.toString(),
   });
-  if (!parsed.success) redirect(safePipelineReturn(undefined));
+  if (!parsed.success) redirect(safeAssignmentReturn(undefined));
 
   const target =
     parsed.data.consultant === UNASSIGNED ? null : parsed.data.consultant;
 
-  await withTenant(session.tenantId, async (tx) => {
+  const result = await withTenant(session.tenantId, async (tx) => {
+    const canReassign = canManageTenantRecords(session.role);
+    if (!canReassign && target !== session.id) return "forbidden";
     // Reject a consultant that is not a real, active user in THIS tenant.
     // RLS scopes the lookup, so a cross-tenant id simply resolves to nothing.
     if (target) {
       const [consultant] = await tx
         .select({ id: users.id })
         .from(users)
-        .where(and(eq(users.id, target), eq(users.active, true)));
-      if (!consultant) return;
+        .where(
+          and(
+            eq(users.id, target),
+            eq(users.tenantId, session.tenantId),
+            eq(users.active, true),
+          ),
+        );
+      if (!consultant) return "forbidden";
     }
+    const existing = await tx
+      .select({
+        id: participants.id,
+        assignedConsultantId: participants.assignedConsultantId,
+      })
+      .from(participants)
+      .where(
+        and(
+          eq(participants.tenantId, session.tenantId),
+          inArray(participants.id, parsed.data.participantIds),
+        ),
+      );
     const updated = await tx
       .update(participants)
       .set({ assignedConsultantId: target })
-      .where(inArray(participants.id, parsed.data.participantIds))
+      .where(
+        and(
+          inArray(participants.id, parsed.data.participantIds),
+          canReassign ? undefined : isNull(participants.assignedConsultantId),
+        ),
+      )
       .returning({ id: participants.id });
     for (const lead of updated) {
+      const previous =
+        existing.find((row) => row.id === lead.id)?.assignedConsultantId ?? null;
       await logActivity(tx, {
         tenantId: session.tenantId,
         actorKind: "internal_user",
         actorUserId: session.id,
         subjectKind: "participant",
         subjectId: lead.id,
-        event: "lead_assigned",
-        meta: { to: target ?? "unassigned" },
+        event: previous === null ? "lead_claimed" : "lead_reassigned",
+        meta: {
+          from: previous ?? "unassigned",
+          to: target ?? "unassigned",
+        },
       });
     }
+    return updated.length > 0 ? "saved" : "forbidden";
   });
 
   revalidatePath("/pipeline");
-  redirect(safePipelineReturn(parsed.data.returnTo));
+  redirect(
+    appendAssignmentResult(
+      safeAssignmentReturn(parsed.data.returnTo),
+      result,
+    ),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -198,6 +262,7 @@ export async function setLeadStatus(formData: FormData): Promise<void> {
   let gateBlocked = false;
   let transitionBlocked = false;
   await withTenant(session.tenantId, async (tx) => {
+    await requireLeadWrite(tx, session, participantId);
     try {
       await changeParticipantStatus(tx, {
         participantId,
@@ -233,14 +298,15 @@ export async function setAvailability(formData: FormData): Promise<void> {
   const participantId = z.string().uuid().parse(formData.get("participantId"));
   const availability = availabilitySchema.parse(formData.get("availability"));
 
-  await withTenant(session.tenantId, (tx) =>
-    recordAvailability(tx, {
+  await withTenant(session.tenantId, async (tx) => {
+    await requireLeadWrite(tx, session, participantId);
+    await recordAvailability(tx, {
       participantId,
       availability,
       actorKind: "internal_user",
       actorUserId: session.id,
-    }),
-  );
+    });
+  });
 
   revalidatePath(leadPath(participantId));
   revalidatePath("/tasks");
@@ -331,6 +397,7 @@ export async function undoLastAction(formData: FormData): Promise<void> {
 
   let outcome: "status" | "availability" | "none" = "none";
   await withTenant(session.tenantId, async (tx) => {
+    await requireLeadWrite(tx, session, participantId);
     const [participant] = await tx
       .select()
       .from(participants)
@@ -455,6 +522,7 @@ export async function updateEligibility(formData: FormData): Promise<void> {
   });
 
   await withTenant(session.tenantId, async (tx) => {
+    await requireLeadWrite(tx, session, parsed.participantId);
     await tx
       .update(participants)
       .set({
@@ -515,6 +583,7 @@ export async function updateParticipantBaData(
     redirect(`${leadPath(participantId)}?badata=bic`);
 
   await withTenant(session.tenantId, async (tx) => {
+    await requireLeadWrite(tx, session, participantId);
     await tx
       .update(participants)
       .set({
@@ -571,9 +640,10 @@ export async function addContactNote(formData: FormData): Promise<void> {
   const participantId = z.string().uuid().parse(formData.get("participantId"));
   const body = z.string().trim().min(1).max(4000).parse(formData.get("body"));
 
-  await withTenant(session.tenantId, (tx) =>
-    addNoteRow(tx, session, participantId, body),
-  );
+  await withTenant(session.tenantId, async (tx) => {
+    await requireLeadWrite(tx, session, participantId);
+    await addNoteRow(tx, session, participantId, body);
+  });
   revalidatePath(leadPath(participantId));
 }
 
@@ -599,6 +669,7 @@ async function mintParticipantTaskLink(
   title: string,
 ): Promise<string | null> {
   return withTenant(session.tenantId, async (tx) => {
+    await requireLeadWrite(tx, session, participantId);
     const [participant] = await tx
       .select({ id: participants.id })
       .from(participants)
@@ -717,6 +788,7 @@ export async function scheduleAppointment(formData: FormData): Promise<void> {
 
   let gateBlocked = false;
   await withTenant(session.tenantId, async (tx) => {
+    await requireLeadWrite(tx, session, parsed.participantId);
     const [participant] = await tx
       .select()
       .from(participants)
@@ -789,6 +861,7 @@ export async function setAppointmentStatus(formData: FormData): Promise<void> {
       .from(appointments)
       .where(eq(appointments.id, appointmentId));
     if (!appointment) return;
+    await requireLeadWrite(tx, session, appointment.participantId);
 
     await tx
       .update(appointments)
@@ -828,6 +901,7 @@ export async function inviteAptitudeTest(formData: FormData): Promise<void> {
 
   let gateBlocked = false;
   await withTenant(session.tenantId, async (tx) => {
+    await requireLeadWrite(tx, session, participantId);
     const [participant] = await tx
       .select()
       .from(participants)
@@ -892,6 +966,7 @@ export async function setAptitudeTestStatus(
       .from(aptitudeTests)
       .where(eq(aptitudeTests.id, testId));
     if (!test) return;
+    await requireLeadWrite(tx, session, test.participantId);
 
     await tx
       .update(aptitudeTests)
@@ -937,6 +1012,11 @@ export async function completeTask(formData: FormData): Promise<void> {
   const taskId = z.string().uuid().parse(formData.get("taskId"));
 
   await withTenant(session.tenantId, async (tx) => {
+    const access = await resolveTaskWriteAccess(tx, taskId, {
+      userId: session.id,
+      role: session.role,
+    });
+    if (access !== "allowed") redirect(`/tasks?access=${access}`);
     await tx
       .update(tasks)
       .set({ status: "done", completedAt: new Date() })

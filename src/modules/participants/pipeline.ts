@@ -2,6 +2,12 @@ import { and, asc, desc, eq, sql, type SQL } from "drizzle-orm";
 import type { DbHandle } from "@/db/client";
 import { employers, importRuns, participants, users } from "@/db/schema";
 import {
+  canManageTenantRecords,
+  normalizeParticipantFilter,
+  type ParticipantAccessContext,
+} from "@/modules/auth/authorization";
+import { buildParticipantAccessCondition } from "@/modules/auth/participant-scope";
+import {
   buildPipelineConditions,
   type ExportRow,
   type PipelineFilter,
@@ -9,6 +15,18 @@ import {
   type StatusCounts,
 } from "./pipeline-filter";
 import type { ParticipantStatus } from "./queries";
+
+const buildScopedConditions = (
+  filter: PipelineFilter,
+  context: ParticipantAccessContext,
+): SQL[] => {
+  const conditions = buildPipelineConditions(
+    normalizeParticipantFilter(filter, context),
+  );
+  const accessCondition = buildParticipantAccessCondition(context);
+  if (accessCondition) conditions.push(accessCondition);
+  return conditions;
+};
 
 // ---------------------------------------------------------------------------
 // DB-access layer for the pipeline workspace. Every count is computed with an
@@ -25,8 +43,9 @@ const EXPORT_ROW_LIMIT = 10_000;
 export async function aggregateByStatus(
   tx: DbHandle,
   filter: PipelineFilter,
+  context: ParticipantAccessContext,
 ): Promise<StatusCounts> {
-  const conditions = buildPipelineConditions(filter);
+  const conditions = buildScopedConditions(filter, context);
   const rows = await tx
     .select({
       status: participants.status,
@@ -50,8 +69,9 @@ export interface CoverageResult {
 export async function aggregateCoverage(
   tx: DbHandle,
   filter: PipelineFilter,
+  context: ParticipantAccessContext,
 ): Promise<CoverageResult> {
-  const conditions = buildPipelineConditions(filter);
+  const conditions = buildScopedConditions(filter, context);
   const [row] = await tx
     .select({
       total: sql<number>`count(*)::int`,
@@ -84,6 +104,7 @@ export interface PipelineAlerts {
 export async function getPipelineAlerts(
   tx: DbHandle,
   staleCutoff: Date,
+  context: ParticipantAccessContext,
 ): Promise<PipelineAlerts> {
   // Bind the cutoff as an explicitly-cast timestamptz string: inside a raw
   // FILTER expression there is no column context for postgres.js to infer the
@@ -97,7 +118,8 @@ export async function getPipelineAlerts(
       wrongNumber: sql<number>`count(*) filter (where ${participants.status} = 'wrong_number')::int`,
       employerPending: sql<number>`count(*) filter (where ${participants.status} = 'employer_pending')::int`,
     })
-    .from(participants);
+    .from(participants)
+    .where(buildParticipantAccessCondition(context));
   return {
     staleNew: row?.staleNew ?? 0,
     missingPhone: row?.missingPhone ?? 0,
@@ -288,8 +310,9 @@ function toPipelineRow(row: RawRow): PipelineRow {
 export async function listPipelinePage(
   tx: DbHandle,
   params: PipelineListParams,
+  context: ParticipantAccessContext,
 ): Promise<PipelinePage> {
-  const conditions = buildPipelineConditions(params.filter);
+  const conditions = buildScopedConditions(params.filter, context);
   const whereExpr = and(...conditions);
   const [totalRow] = await tx
     .select({ total: sql<number>`count(*)::int` })
@@ -314,8 +337,9 @@ export async function listPipelinePage(
 export async function listPipelineForExport(
   tx: DbHandle,
   filter: PipelineFilter,
+  context: ParticipantAccessContext,
 ): Promise<ExportRow[]> {
-  const conditions = buildPipelineConditions(filter);
+  const conditions = buildScopedConditions(filter, context);
   const rows = await tx
     .select({
       firstName: participants.firstName,
@@ -340,26 +364,42 @@ export async function listPipelineForExport(
 export interface ConsultantOption {
   id: string;
   name: string;
-  role: string;
+  role: ParticipantAccessContext["role"];
 }
 
 /** Active internal users, for the consultant filter + bulk-assign menu. */
 export async function listConsultants(
   tx: DbHandle,
+  context: ParticipantAccessContext,
 ): Promise<ConsultantOption[]> {
   return tx
     .select({ id: users.id, name: users.name, role: users.role })
     .from(users)
-    .where(eq(users.active, true))
+    .where(
+      and(
+        eq(users.active, true),
+        canManageTenantRecords(context.role)
+          ? undefined
+          : eq(users.id, context.userId),
+      ),
+    )
     .orderBy(asc(users.name));
 }
 
 /** Distinct lead sources present in the tenant, for the source filter. */
-export async function listSources(tx: DbHandle): Promise<string[]> {
+export async function listSources(
+  tx: DbHandle,
+  context: ParticipantAccessContext,
+): Promise<string[]> {
   const rows = await tx
     .selectDistinct({ source: participants.source })
     .from(participants)
-    .where(sql`${participants.source} is not null and ${participants.source} <> ''`)
+    .where(
+      and(
+        sql`${participants.source} is not null and ${participants.source} <> ''`,
+        buildParticipantAccessCondition(context),
+      ),
+    )
     .orderBy(asc(participants.source));
   return rows.map((r) => r.source).filter((s): s is string => Boolean(s));
 }

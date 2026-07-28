@@ -1,5 +1,7 @@
-import { desc, eq, or } from "drizzle-orm";
+import { and, desc, eq, or } from "drizzle-orm";
 import type { DbHandle } from "@/db/client";
+import type { ParticipantAccessContext } from "@/modules/auth/authorization";
+import { buildParticipantAccessCondition } from "@/modules/auth/participant-scope";
 import {
   activityLog,
   appointments,
@@ -16,11 +18,20 @@ export type LeadDetail = NonNullable<
   Awaited<ReturnType<typeof getLeadDetail>>
 >;
 
-export async function getLeadDetail(tx: DbHandle, id: string) {
+export async function getLeadDetail(
+  tx: DbHandle,
+  id: string,
+  context: ParticipantAccessContext,
+) {
   const [participant] = await tx
     .select()
     .from(participants)
-    .where(eq(participants.id, id));
+    .where(
+      and(
+        eq(participants.id, id),
+        buildParticipantAccessCondition(context),
+      ),
+    );
   if (!participant) return null;
 
   const [employer] = participant.employerId

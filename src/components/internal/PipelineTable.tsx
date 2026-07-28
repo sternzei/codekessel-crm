@@ -5,6 +5,8 @@ import { usePathname, useSearchParams } from "next/navigation";
 import { useMemo, useState } from "react";
 import { assignLeads } from "@/modules/participants/actions-internal";
 import type { ConsultantOption } from "@/modules/participants/pipeline";
+import { getRoleLabel } from "@/modules/auth/authorization";
+import type { AppRole } from "@/modules/auth/authorization";
 
 export interface PipelineRowView {
   id: string;
@@ -26,6 +28,7 @@ type BadgeTone = "ok" | "warn" | "danger" | "neutral";
 export interface PipelineTableProps {
   rows: PipelineRowView[];
   consultants: ConsultantOption[];
+  currentRole: AppRole;
   sort: string;
   dir: string;
 }
@@ -49,7 +52,13 @@ const toneClass: Record<BadgeTone, string> = {
   neutral: "badge",
 };
 
-export function PipelineTable({ rows, consultants, sort, dir }: PipelineTableProps) {
+export function PipelineTable({
+  rows,
+  consultants,
+  currentRole,
+  sort,
+  dir,
+}: PipelineTableProps) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -110,11 +119,15 @@ export function PipelineTable({ rows, consultants, sort, dir }: PipelineTablePro
               <option value="" disabled>
                 Zuweisen an …
               </option>
-              <option value="unassigned">Zuweisung entfernen</option>
+              {currentRole !== "consultant" ? (
+                <option value="unassigned">Zuweisung entfernen</option>
+              ) : null}
               {consultants.map((consultant) => (
                 <option key={consultant.id} value={consultant.id}>
                   {consultant.name}
-                  {consultant.role === "admin" ? " (Admin)" : ""}
+                  {consultant.role === "consultant"
+                    ? ""
+                    : ` (${getRoleLabel(consultant.role)})`}
                 </option>
               ))}
             </select>
