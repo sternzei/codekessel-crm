@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { asc, eq, sql } from "drizzle-orm";
 import { redirect } from "next/navigation";
+import { HelpLink } from "@/components/help/help-link";
 import { withTenant } from "@/db/client";
 import { documents, participants } from "@/db/schema";
 import { getSession } from "@/modules/auth/session";
@@ -34,6 +35,10 @@ export default async function DocumentsPage() {
           Zentrale Datensammlung → Checkliste → PDF-Erstellung → Signatur.
           Alle Dokumente werden aus einmal erfassten Daten erzeugt.
         </p>
+        <HelpLink
+          topic="documents-readiness"
+          label="Hilfe: Dokumente & Readiness"
+        />
       </header>
 
       <div className="data-list">
