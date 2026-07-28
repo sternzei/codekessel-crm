@@ -56,10 +56,11 @@ explicit human approval action in the UI.
 ### Lifecycle
 
 ```
-pending_approval ──approve──▶ approved ──▶ sending ──▶ sent ──(webhook)──▶ delivered
-       │                          │                      └──────────────▶ failed
-       ├──reject──▶ rejected      └──cancel──▶ cancelled
+pending_approval ──atomic approve/claim──▶ sending ──▶ sent ──(webhook)──▶ delivered
+       │                                     └──────────────▶ failed
+       ├──reject──▶ rejected
        └──cancel──▶ cancelled
+legacy approved ──cancel──▶ cancelled
 ```
 
 The state machine is pure and unit-tested in
@@ -97,7 +98,7 @@ system paths now call it:
 
 `approveAndDispatch` is the single code path that calls an adapter. It loads the
 pending row (tenant-scoped), records the approver, transitions
-`approved → sending → sent/failed` around the adapter call, mirrors the provider
+`pending_approval → sending → sent/failed` around the adapter call, mirrors the provider
 id into `message_deliveries`, and emits honest audit events. `rejectOutboundMessage`
 and `cancelOutboundMessage` never dispatch.
 
@@ -107,6 +108,19 @@ The session-guarded, tenant-scoped server actions live in
 (`/outbox`, `src/app/(internal)/outbox/page.tsx`), which lists each pending
 message with recipient, channel, and a full body preview plus Approve/Reject
 controls.
+
+The `approved` status is retained only so legacy, undispatched rows can be
+cancelled. New approvals never persist this intermediate state.
+
+### Ambiguous `sending` recovery
+
+An adapter may reach the provider and then crash before the final database
+write. The row deliberately remains `sending`: it must **not** be automatically
+retried because the provider may already have accepted the message. After 15
+minutes by default (`OUTBOX_STALE_SENDING_MINUTES`), manager/admin users see an
+operational warning and a structured `outbox_stale_sending_detected` log.
+Recovery requires manual reconciliation against provider records/webhooks,
+followed by a forward status correction based on evidence.
 
 ### Audit events
 

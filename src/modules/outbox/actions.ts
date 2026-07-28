@@ -22,13 +22,12 @@ export async function approveMessage(formData: FormData): Promise<void> {
   const session = await getSession();
   if (!session) redirect("/auth/sign-in");
   const messageId = z.string().uuid().parse(formData.get("messageId"));
-  const outcome = await withTenant(session.tenantId, (tx) =>
-    approveAndDispatch(tx, {
-      tenantId: session.tenantId,
-      messageId,
-      approvedByUserId: session.id,
-    }),
-  );
+  const outcome = await approveAndDispatch({
+    tenantId: session.tenantId,
+    messageId,
+    approvedByUserId: session.id,
+    approverRole: session.role,
+  });
   redirect(`/outbox?result=${outcome}`);
 }
 
@@ -47,6 +46,7 @@ export async function rejectMessage(formData: FormData): Promise<void> {
       tenantId: session.tenantId,
       messageId,
       rejectedByUserId: session.id,
+      rejectorRole: session.role,
       reason,
     }),
   );
@@ -63,6 +63,7 @@ export async function cancelMessage(formData: FormData): Promise<void> {
       tenantId: session.tenantId,
       messageId,
       cancelledByUserId: session.id,
+      cancellerRole: session.role,
     }),
   );
   redirect(`/outbox?result=${outcome}`);

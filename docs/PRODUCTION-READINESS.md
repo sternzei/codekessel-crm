@@ -6,6 +6,22 @@
 
 **Explicitly excluded per instructions:** the in-flight WhatsApp "approval-before-send" gate (the `outbound_messages` table + Postausgang flow). The prior hardening track (atomic job claiming, burn-token-first ordering, `client-ip.ts` / `file-sniff.ts` trust boundaries, CSV formula-injection escaping, atomic status transitions, `tasks_active_dedup_idx`) was **verified sound** (see notes inline) and is not re-flagged as new work.
 
+## Phase 0 operational addendum
+
+- Alert on structured log event `outbox_stale_sending_detected`.
+- The default ambiguity threshold is 15 minutes; override with
+  `OUTBOX_STALE_SENDING_MINUTES` (minimum 5).
+- Never retry a `sending` row automatically. Reconcile the message ID,
+  recipient and provider logs/webhooks first; the provider may have accepted
+  the send before local persistence failed. Correct status only from evidence.
+- Migration 0013 adds PostgreSQL enum value `manager`. Recovery is a forward
+  corrective migration; do not manually delete or rewrite the enum value.
+- Migration 0014 changes the creator foreign key to `ON DELETE SET NULL`, so
+  user offboarding preserves outbound history.
+- 0013 and 0014 are separate forward migrations. If deployment is interrupted
+  between them, creator deletion remains temporarily blocked by `NO ACTION`;
+  resume the migration runner through 0014 before offboarding users.
+
 ---
 
 ## State of the tree (checks I ran)

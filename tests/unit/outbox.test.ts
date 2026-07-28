@@ -6,6 +6,7 @@ import {
   approveAndDispatch,
   cancelOutboundMessage,
   enqueueTaskMessage,
+  isStaleSendingTimestamp,
   rejectOutboundMessage,
 } from "@/modules/messaging/outbox";
 import type { ChannelAdapter, OutboundMessage, SendResult } from "@/modules/messaging/types";
@@ -22,13 +23,20 @@ type FakeConfig = {
   selectResults?: Row[][];
   // Row returned by insert().values().returning() (the created outbox row).
   insertReturning?: Row[];
+  updateReturning?: Row[][];
 };
 
 function makeFakeDb(config: FakeConfig = {}) {
   const inserts: { table: unknown; values: Row }[] = [];
   const updates: { table: unknown; set: Row }[] = [];
   const selectQueue = [...(config.selectResults ?? [])];
-  const nextSelect = (): Row[] => selectQueue.shift() ?? [];
+  const updateQueue = [...(config.updateReturning ?? [])];
+  let lastSelected: Row | undefined;
+  const nextSelect = (): Row[] => {
+    const rows = selectQueue.shift() ?? [];
+    lastSelected = rows[0];
+    return rows;
+  };
   const db = {
     insert(table: unknown) {
       return {
@@ -51,7 +59,17 @@ function makeFakeDb(config: FakeConfig = {}) {
           return {
             where() {
               updates.push({ table, set });
-              return Promise.resolve(undefined);
+              const query = {
+                returning() {
+                  return Promise.resolve(
+                    updateQueue.shift() ?? (lastSelected ? [lastSelected] : []),
+                  );
+                },
+                then(resolve: (value: unknown) => void) {
+                  resolve(undefined);
+                },
+              };
+              return query;
             },
           };
         },
@@ -91,6 +109,14 @@ function makeFakeAdapter(result: SendResult) {
   return { adapter, sent };
 }
 
+const makeTenantRunner =
+  (db: DbHandle) =>
+  async <T>(
+    _tenantId: string,
+    operation: (tx: DbHandle) => Promise<T>,
+  ): Promise<T> =>
+    operation(db);
+
 const enqueueParams = {
   tenantId: "tenant-1",
   taskId: "task-1",
@@ -105,6 +131,26 @@ const enqueueParams = {
   },
   variables: { firstName: "Lena", title: "Verfügbarkeit bestätigen" },
 };
+
+test("stale sending detection uses the configured age threshold", () => {
+  const now = new Date("2026-07-28T12:00:00.000Z");
+  assert.equal(
+    isStaleSendingTimestamp(
+      new Date("2026-07-28T11:44:59.000Z"),
+      now,
+      15,
+    ),
+    true,
+  );
+  assert.equal(
+    isStaleSendingTimestamp(
+      new Date("2026-07-28T11:45:01.000Z"),
+      now,
+      15,
+    ),
+    false,
+  );
+});
 
 test("enqueueTaskMessage writes a pending row and never dispatches", async () => {
   // First select = renderTemplate lookup (no template → neutral fallback body).
@@ -123,6 +169,7 @@ test("enqueueTaskMessage writes a pending row and never dispatches", async () =>
 const pendingRow: Row = {
   id: "om-1",
   tenantId: "tenant-1",
+  createdByUserId: "creator-1",
   taskId: "task-1",
   channel: "whatsapp",
   templateKey: "task_confirm_availability",
@@ -140,11 +187,13 @@ const pendingRow: Row = {
 test("approveAndDispatch dispatches a pending message and records the delivery", async () => {
   const fake = makeFakeDb({ selectResults: [[pendingRow]] });
   const { adapter, sent } = makeFakeAdapter({ ok: true, providerMessageId: "wamid.X" });
-  const outcome = await approveAndDispatch(fake.db, {
+  const outcome = await approveAndDispatch({
     tenantId: "tenant-1",
     messageId: "om-1",
     approvedByUserId: "user-1",
+    approverRole: "manager",
     adapter,
+    runWithTenant: makeTenantRunner(fake.db),
   });
   assert.equal(outcome, "dispatched");
   assert.equal(sent.length, 1, "the adapter was called exactly once");
@@ -161,14 +210,46 @@ test("approveAndDispatch dispatches a pending message and records the delivery",
   assert.equal(dispatched.length, 1);
 });
 
+test("approveAndDispatch denies consultants without dispatching", async () => {
+  const fake = makeFakeDb({ selectResults: [[pendingRow]] });
+  const { adapter, sent } = makeFakeAdapter({ ok: true });
+  const outcome = await approveAndDispatch({
+    tenantId: "tenant-1",
+    messageId: "om-1",
+    approvedByUserId: "consultant-1",
+    approverRole: "consultant",
+    adapter,
+    runWithTenant: makeTenantRunner(fake.db),
+  });
+  assert.equal(outcome, "forbidden_role");
+  assert.equal(sent.length, 0);
+});
+
+test("approveAndDispatch denies creator self-approval without dispatching", async () => {
+  const fake = makeFakeDb({ selectResults: [[pendingRow]] });
+  const { adapter, sent } = makeFakeAdapter({ ok: true });
+  const outcome = await approveAndDispatch({
+    tenantId: "tenant-1",
+    messageId: "om-1",
+    approvedByUserId: "creator-1",
+    approverRole: "admin",
+    adapter,
+    runWithTenant: makeTenantRunner(fake.db),
+  });
+  assert.equal(outcome, "self_approval");
+  assert.equal(sent.length, 0);
+});
+
 test("approveAndDispatch marks the row failed when the adapter rejects", async () => {
   const fake = makeFakeDb({ selectResults: [[pendingRow]] });
   const { adapter } = makeFakeAdapter({ ok: false, error: "boom" });
-  const outcome = await approveAndDispatch(fake.db, {
+  const outcome = await approveAndDispatch({
     tenantId: "tenant-1",
     messageId: "om-1",
     approvedByUserId: "user-1",
+    approverRole: "manager",
     adapter,
+    runWithTenant: makeTenantRunner(fake.db),
   });
   assert.equal(outcome, "failed");
   assert.equal(fake.updates[1]?.set.status, "failed");
@@ -180,14 +261,47 @@ test("approveAndDispatch marks the row failed when the adapter rejects", async (
   );
 });
 
+test("post-provider persistence failure leaves sending without auto-retry", async () => {
+  const fake = makeFakeDb({ selectResults: [[pendingRow]] });
+  const { adapter, sent } = makeFakeAdapter({
+    ok: true,
+    providerMessageId: "provider-accepted",
+  });
+  let transactionCount = 0;
+  const runWithTenant = async <T>(
+    _tenantId: string,
+    operation: (tx: DbHandle) => Promise<T>,
+  ): Promise<T> => {
+    transactionCount += 1;
+    if (transactionCount === 2) throw new Error("database unavailable");
+    return operation(fake.db);
+  };
+  await assert.rejects(
+    approveAndDispatch({
+      tenantId: "tenant-1",
+      messageId: "om-1",
+      approvedByUserId: "user-1",
+      approverRole: "manager",
+      adapter,
+      runWithTenant,
+    }),
+    /database unavailable/,
+  );
+  assert.equal(sent.length, 1);
+  assert.equal(fake.updates.length, 1);
+  assert.equal(fake.updates[0]?.set.status, "sending");
+});
+
 test("approveAndDispatch refuses an unknown message id without dispatching", async () => {
   const fake = makeFakeDb({ selectResults: [[]] });
   const { adapter, sent } = makeFakeAdapter({ ok: true });
-  const outcome = await approveAndDispatch(fake.db, {
+  const outcome = await approveAndDispatch({
     tenantId: "tenant-1",
     messageId: "missing",
     approvedByUserId: "user-1",
+    approverRole: "manager",
     adapter,
+    runWithTenant: makeTenantRunner(fake.db),
   });
   assert.equal(outcome, "not_found");
   assert.equal(sent.length, 0);
@@ -197,15 +311,46 @@ test("approveAndDispatch refuses an unknown message id without dispatching", asy
 test("approveAndDispatch refuses an already-handled message", async () => {
   const fake = makeFakeDb({ selectResults: [[{ ...pendingRow, status: "sent" }]] });
   const { adapter, sent } = makeFakeAdapter({ ok: true });
-  const outcome = await approveAndDispatch(fake.db, {
+  const outcome = await approveAndDispatch({
     tenantId: "tenant-1",
     messageId: "om-1",
     approvedByUserId: "user-1",
+    approverRole: "manager",
     adapter,
+    runWithTenant: makeTenantRunner(fake.db),
   });
   assert.equal(outcome, "not_pending");
   assert.equal(sent.length, 0);
   assert.equal(fake.updates.length, 0);
+});
+
+test("approveAndDispatch emits no approval audit when CAS loses", async () => {
+  const fake = makeFakeDb({
+    selectResults: [[pendingRow]],
+    updateReturning: [[]],
+  });
+  const { adapter, sent } = makeFakeAdapter({
+    ok: true,
+    providerMessageId: "never-sent",
+  });
+  const outcome = await approveAndDispatch({
+    tenantId: "tenant-1",
+    messageId: "om-1",
+    approvedByUserId: "user-1",
+    approverRole: "manager",
+    adapter,
+    runWithTenant: makeTenantRunner(fake.db),
+  });
+  assert.equal(outcome, "not_pending");
+  assert.equal(sent.length, 0);
+  assert.equal(
+    fake.inserts.some(
+      (insert) =>
+        insert.table === activityLog &&
+        insert.values.event === "message_approved",
+    ),
+    false,
+  );
 });
 
 test("rejectOutboundMessage rejects a pending message with an audit event", async () => {
@@ -214,6 +359,7 @@ test("rejectOutboundMessage rejects a pending message with an audit event", asyn
     tenantId: "tenant-1",
     messageId: "om-1",
     rejectedByUserId: "user-1",
+    rejectorRole: "manager",
     reason: "wrong recipient",
   });
   assert.equal(outcome, "rejected");
@@ -229,9 +375,54 @@ test("rejectOutboundMessage refuses an already-handled message", async () => {
     tenantId: "tenant-1",
     messageId: "om-1",
     rejectedByUserId: "user-1",
+    rejectorRole: "manager",
   });
   assert.equal(outcome, "not_pending");
   assert.equal(fake.updates.length, 0);
+});
+
+test("rejectOutboundMessage emits no terminal audit when CAS loses", async () => {
+  const fake = makeFakeDb({
+    selectResults: [[pendingRow], [{ ...pendingRow, status: "rejected" }]],
+    updateReturning: [[]],
+  });
+  const outcome = await rejectOutboundMessage(fake.db, {
+    tenantId: "tenant-1",
+    messageId: "om-1",
+    rejectedByUserId: "user-1",
+    rejectorRole: "manager",
+  });
+  assert.equal(outcome, "not_pending");
+  assert.equal(
+    fake.inserts.some(
+      (insert) =>
+        insert.table === activityLog &&
+        insert.values.event === "message_rejected",
+    ),
+    false,
+  );
+});
+
+test("consultant cannot reject or cancel outbound messages", async () => {
+  for (const action of ["reject", "cancel"] as const) {
+    const fake = makeFakeDb({ selectResults: [[pendingRow]] });
+    const outcome =
+      action === "reject"
+        ? await rejectOutboundMessage(fake.db, {
+            tenantId: "tenant-1",
+            messageId: "om-1",
+            rejectedByUserId: "consultant-1",
+            rejectorRole: "consultant",
+          })
+        : await cancelOutboundMessage(fake.db, {
+            tenantId: "tenant-1",
+            messageId: "om-1",
+            cancelledByUserId: "consultant-1",
+            cancellerRole: "consultant",
+          });
+    assert.equal(outcome, "forbidden_role");
+    assert.equal(fake.updates.length, 0);
+  }
 });
 
 test("cancelOutboundMessage cancels a pending or approved message", async () => {
@@ -241,6 +432,7 @@ test("cancelOutboundMessage cancels a pending or approved message", async () => 
       tenantId: "tenant-1",
       messageId: "om-1",
       cancelledByUserId: "user-1",
+      cancellerRole: "manager",
     });
     assert.equal(outcome, "cancelled");
     assert.equal(fake.updates[0]?.set.status, "cancelled");
@@ -253,7 +445,30 @@ test("cancelOutboundMessage refuses a message already in flight", async () => {
     tenantId: "tenant-1",
     messageId: "om-1",
     cancelledByUserId: "user-1",
+    cancellerRole: "manager",
   });
   assert.equal(outcome, "not_cancellable");
   assert.equal(fake.updates.length, 0);
+});
+
+test("cancelOutboundMessage emits no terminal audit when CAS loses", async () => {
+  const fake = makeFakeDb({
+    selectResults: [[pendingRow], [{ ...pendingRow, status: "sending" }]],
+    updateReturning: [[]],
+  });
+  const outcome = await cancelOutboundMessage(fake.db, {
+    tenantId: "tenant-1",
+    messageId: "om-1",
+    cancelledByUserId: "user-1",
+    cancellerRole: "manager",
+  });
+  assert.equal(outcome, "not_cancellable");
+  assert.equal(
+    fake.inserts.some(
+      (insert) =>
+        insert.table === activityLog &&
+        insert.values.event === "message_cancelled",
+    ),
+    false,
+  );
 });

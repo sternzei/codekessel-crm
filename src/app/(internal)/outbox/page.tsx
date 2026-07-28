@@ -1,10 +1,19 @@
 import { getTranslations } from "next-intl/server";
 import { redirect } from "next/navigation";
+import { HelpLink } from "@/components/help/help-link";
 import { withTenant } from "@/db/client";
 import { env } from "@/lib/env";
+import { canManageTenantRecords } from "@/modules/auth/authorization";
 import { getSession } from "@/modules/auth/session";
-import { listPendingMessages } from "@/modules/messaging/outbox";
-import { approveMessage, rejectMessage } from "@/modules/outbox/actions";
+import {
+  listPendingMessages,
+  listStaleSendingMessages,
+} from "@/modules/messaging/outbox";
+import {
+  approveMessage,
+  cancelMessage,
+  rejectMessage,
+} from "@/modules/outbox/actions";
 
 export const dynamic = "force-dynamic";
 
@@ -18,6 +27,8 @@ const BANNER_KEYS = new Set([
   "not_found",
   "not_pending",
   "not_cancellable",
+  "forbidden_role",
+  "self_approval",
 ]);
 
 const SUCCESS_BANNERS = new Set(["queued", "dispatched", "rejected", "cancelled"]);
@@ -36,9 +47,32 @@ export default async function OutboxPage({
   const bannerKey = queued ? "queued" : result && BANNER_KEYS.has(result) ? result : null;
   const isSuccess = bannerKey ? SUCCESS_BANNERS.has(bannerKey) : false;
 
-  const pending = await withTenant(session.tenantId, (tx) =>
-    listPendingMessages(tx),
+  const canModerate = canManageTenantRecords(session.role);
+  const { pending, staleSending } = await withTenant(
+    session.tenantId,
+    async (tx) => ({
+      pending: await listPendingMessages(tx, {
+        userId: session.id,
+        role: session.role,
+      }),
+      staleSending: canModerate
+        ? await listStaleSendingMessages(
+            tx,
+            env.OUTBOX_STALE_SENDING_MINUTES,
+          )
+        : [],
+    }),
   );
+  if (staleSending.length > 0) {
+    console.warn(
+      JSON.stringify({
+        event: "outbox_stale_sending_detected",
+        tenantId: session.tenantId,
+        thresholdMinutes: env.OUTBOX_STALE_SENDING_MINUTES,
+        messageIds: staleSending.map((message) => message.id),
+      }),
+    );
+  }
 
   return (
     <>
@@ -50,6 +84,7 @@ export default async function OutboxPage({
             {t("sender")}: +{env.WHATSAPP_SENDER_NUMBER}
           </p>
         ) : null}
+        <HelpLink topic="whatsapp-approval" label="Hilfe: Freigabe & Versand" />
       </header>
 
       {bannerKey ? (
@@ -59,6 +94,25 @@ export default async function OutboxPage({
           role="status"
         >
           {t(`banners.${bannerKey}`)}
+        </p>
+      ) : null}
+
+      {!canModerate ? (
+        <p className="info-banner" style={{ marginBottom: "var(--space-6)" }}>
+          {t("approvalRestricted")}
+        </p>
+      ) : null}
+
+      {staleSending.length > 0 ? (
+        <p
+          className="gate-banner"
+          role="alert"
+          style={{ marginBottom: "var(--space-6)" }}
+        >
+          {staleSending.length} Nachricht(en) stehen seit mehr als{" "}
+          {env.OUTBOX_STALE_SENDING_MINUTES} Minuten auf „Wird gesendet“.
+          Manuelle Abstimmung mit dem Provider erforderlich – nicht blind erneut
+          senden.
         </p>
       ) : null}
 
@@ -103,17 +157,23 @@ export default async function OutboxPage({
               </p>
 
               <div style={{ display: "flex", gap: "var(--space-3)", alignItems: "flex-end", flexWrap: "wrap" }}>
-                <form action={approveMessage}>
+                {canModerate ? <form action={approveMessage}>
                   <input type="hidden" name="messageId" value={message.id} />
                   <button
                     type="submit"
                     className="button button--sm"
                     aria-label={t("approve")}
+                    disabled={message.createdByUserId === session.id}
+                    title={
+                      message.createdByUserId === session.id
+                        ? t("selfApprovalRestricted")
+                        : undefined
+                    }
                   >
                     {t("approve")}
                   </button>
-                </form>
-                <form
+                </form> : null}
+                {canModerate ? <form
                   action={rejectMessage}
                   style={{ display: "flex", gap: "var(--space-2)", alignItems: "flex-end" }}
                 >
@@ -135,7 +195,19 @@ export default async function OutboxPage({
                   >
                     {t("reject")}
                   </button>
-                </form>
+                </form> : null}
+                {canModerate ? (
+                  <form action={cancelMessage}>
+                    <input type="hidden" name="messageId" value={message.id} />
+                    <button
+                      type="submit"
+                      className="button button--sm button--ghost"
+                      aria-label={t("cancel")}
+                    >
+                      {t("cancel")}
+                    </button>
+                  </form>
+                ) : null}
               </div>
             </article>
           ))}

@@ -11,7 +11,7 @@ import {
 } from "@/modules/messaging/outbound-status";
 
 test("canTransition allows the happy-path lifecycle edges", () => {
-  assert.equal(canTransition("pending_approval", "approved"), true);
+  assert.equal(canTransition("pending_approval", "sending"), true);
   assert.equal(canTransition("approved", "sending"), true);
   assert.equal(canTransition("sending", "sent"), true);
   assert.equal(canTransition("sending", "failed"), true);
@@ -26,7 +26,7 @@ test("canTransition allows the human decision branches", () => {
 
 test("canTransition forbids skipping the approval gate", () => {
   assert.equal(canTransition("pending_approval", "sent"), false);
-  assert.equal(canTransition("pending_approval", "sending"), false);
+  assert.equal(canTransition("pending_approval", "approved"), false);
   assert.equal(canTransition("approved", "sent"), false);
 });
 

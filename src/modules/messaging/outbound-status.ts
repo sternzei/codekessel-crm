@@ -14,10 +14,11 @@ export type OutboundMessageStatus =
   | "cancelled";
 
 // Allowed forward transitions. A signed-in user drives approve/reject/cancel;
-// the dispatch path drives approved→sending→sent/failed; a webhook receipt
+// approval atomically claims pending→sending, then dispatch drives sent/failed.
+// `approved` remains readable for legacy rows but is no longer newly written.
 // later advances sent→delivered (reconciled via message_deliveries).
 const TRANSITIONS: Readonly<Record<OutboundMessageStatus, readonly OutboundMessageStatus[]>> = {
-  pending_approval: ["approved", "rejected", "cancelled"],
+  pending_approval: ["sending", "rejected", "cancelled"],
   approved: ["sending", "cancelled"],
   sending: ["sent", "failed"],
   sent: ["delivered"],
