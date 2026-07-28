@@ -56,3 +56,4 @@ next-env.d.ts
 # local testing wiki (not for the repo). plan.md IS tracked (single planning
 # source); wiki.md stays local.
 /wiki.md
+
