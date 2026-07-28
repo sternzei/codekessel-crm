@@ -7,6 +7,11 @@ import {
   employers,
   participants,
 } from "@/db/schema";
+import {
+  canManageTenantRecords,
+  type ParticipantAccessContext,
+} from "@/modules/auth/authorization";
+import { buildParticipantAccessCondition } from "@/modules/auth/participant-scope";
 import { PIPELINE_STATUS_ORDER } from "@/modules/participants/queries";
 
 // Analytics + quality management (concept §17). Every KPI is computed live
@@ -99,10 +104,17 @@ const pct = (n: number, d: number): number | null =>
 export async function computeReports(
   tx: DbHandle,
   filter: ReportFilter,
+  context: ParticipantAccessContext,
 ): Promise<ReportMetrics> {
-  const consultant = filter.consultantId
-    ? eq(participants.assignedConsultantId, filter.consultantId)
+  const selectedConsultantId =
+    canManageTenantRecords(context.role) ||
+    filter.consultantId === context.userId
+      ? filter.consultantId
+      : undefined;
+  const consultant = selectedConsultantId
+    ? eq(participants.assignedConsultantId, selectedConsultantId)
     : undefined;
+  const participantAccess = buildParticipantAccessCondition(context);
 
   // ---- Leads -------------------------------------------------------------
   const leadRange = [
@@ -120,13 +132,15 @@ export async function computeReports(
       wrongNumber: sql<number>`count(*) filter (where ${participants.status} = 'wrong_number')::int`,
     })
     .from(participants)
-    .where(and(...leadRange, consultant));
+    .where(and(...leadRange, consultant, participantAccess));
 
   // ---- Appointments ------------------------------------------------------
   const apptRange = [
     filter.from ? gte(appointments.scheduledAt, filter.from) : undefined,
     filter.until ? lte(appointments.scheduledAt, filter.until) : undefined,
-    filter.consultantId ? eq(appointments.consultantId, filter.consultantId) : undefined,
+    selectedConsultantId
+      ? eq(appointments.consultantId, selectedConsultantId)
+      : undefined,
   ];
   const [appt] = await tx
     .select({
@@ -136,7 +150,8 @@ export async function computeReports(
       followDone: sql<number>`count(*) filter (where ${appointments.type} = 'follow_up' and ${appointments.status} = 'completed')::int`,
     })
     .from(appointments)
-    .where(and(...apptRange));
+    .innerJoin(participants, eq(appointments.participantId, participants.id))
+    .where(and(...apptRange, participantAccess));
 
   // ---- Aptitude tests ----------------------------------------------------
   const testRange = [
@@ -144,8 +159,7 @@ export async function computeReports(
     filter.until ? lte(aptitudeTests.invitedAt, filter.until) : undefined,
   ];
   // Consultant filter for tests goes through the owning participant.
-  const testRows = filter.consultantId
-    ? await tx
+  const testRows = await tx
         .select({
           total: sql<number>`count(*)::int`,
           completed: sql<number>`count(*) filter (where ${aptitudeTests.status} in ('completed','passed','failed'))::int`,
@@ -153,15 +167,7 @@ export async function computeReports(
         })
         .from(aptitudeTests)
         .innerJoin(participants, eq(aptitudeTests.participantId, participants.id))
-        .where(and(...testRange, consultant))
-    : await tx
-        .select({
-          total: sql<number>`count(*)::int`,
-          completed: sql<number>`count(*) filter (where ${aptitudeTests.status} in ('completed','passed','failed'))::int`,
-          passed: sql<number>`count(*) filter (where ${aptitudeTests.status} = 'passed')::int`,
-        })
-        .from(aptitudeTests)
-        .where(and(...testRange));
+        .where(and(...testRange, consultant, participantAccess));
   const [test] = testRows;
 
   // ---- Employers (tenant-wide; date-ranged only) -------------------------
@@ -169,7 +175,7 @@ export async function computeReports(
     filter.from ? gte(employers.createdAt, filter.from) : undefined,
     filter.until ? lte(employers.createdAt, filter.until) : undefined,
   ];
-  const [emp] = await tx
+  const [emp] = canManageTenantRecords(context.role) ? await tx
     .select({
       total: sql<number>`count(*)::int`,
       confirmed: sql<number>`count(*) filter (where ${employers.status} = 'confirmed')::int`,
@@ -177,15 +183,14 @@ export async function computeReports(
       missingAgs: sql<number>`count(*) filter (where ${employers.agsRegistered} is distinct from true)::int`,
     })
     .from(employers)
-    .where(and(...employerRange));
+    .where(and(...employerRange)) : [];
 
   // ---- Applications (consultant via participant) -------------------------
   const appRange = [
     filter.from ? gte(applications.createdAt, filter.from) : undefined,
     filter.until ? lte(applications.createdAt, filter.until) : undefined,
   ];
-  const [app] = filter.consultantId
-    ? await tx
+  const [app] = await tx
         .select({
           total: sql<number>`count(*)::int`,
           submitted: sql<number>`count(*) filter (where ${applications.status} in ('submitted','response_pending','approved','rejected','correction_required'))::int`,
@@ -194,17 +199,7 @@ export async function computeReports(
         })
         .from(applications)
         .innerJoin(participants, eq(applications.participantId, participants.id))
-        .where(and(...appRange, consultant))
-    : await tx
-        .select({
-          total: sql<number>`count(*)::int`,
-          submitted: sql<number>`count(*) filter (where ${applications.status} in ('submitted','response_pending','approved','rejected','correction_required'))::int`,
-          approved: sql<number>`count(*) filter (where ${applications.status} = 'approved')::int`,
-          avgDays: sql<number>`coalesce(round(avg(extract(epoch from (${applications.createdAt} - ${participants.createdAt})) / 86400)), 0)::float`,
-        })
-        .from(applications)
-        .innerJoin(participants, eq(applications.participantId, participants.id))
-        .where(and(...appRange));
+        .where(and(...appRange, consultant, participantAccess));
 
   // ---- Funnel / drop-off -------------------------------------------------
   const funnelRows = await tx
@@ -213,7 +208,7 @@ export async function computeReports(
       count: sql<number>`count(*)::int`,
     })
     .from(participants)
-    .where(and(...leadRange, consultant))
+    .where(and(...leadRange, consultant, participantAccess))
     .groupBy(participants.status);
   const funnelByStatus = new Map(funnelRows.map((r) => [r.status, r.count]));
   const funnel: FunnelStep[] = PIPELINE_ORDER.map((status) => ({

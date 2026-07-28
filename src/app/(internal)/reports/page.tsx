@@ -1,9 +1,14 @@
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { redirect } from "next/navigation";
 import { z } from "zod";
 import { withTenant } from "@/db/client";
 import { users } from "@/db/schema";
 import { getSession } from "@/modules/auth/session";
+import {
+  canManageTenantRecords,
+  getRoleLabel,
+  type AppRole,
+} from "@/modules/auth/authorization";
 import { computeReports, type ReportMetrics } from "@/modules/reports/metrics";
 
 export const dynamic = "force-dynamic";
@@ -42,12 +47,24 @@ export default async function ReportsPage({
     parsed.consultant && parsed.consultant !== "all" ? parsed.consultant : undefined;
 
   const { consultants, metrics } = await withTenant(session.tenantId, async (tx) => {
+    const accessContext = { userId: session.id, role: session.role };
     const consultants = await tx
       .select({ id: users.id, name: users.name, role: users.role })
       .from(users)
-      .where(eq(users.active, true))
+      .where(
+        and(
+          eq(users.active, true),
+          canManageTenantRecords(session.role)
+            ? undefined
+            : eq(users.id, session.id),
+        ),
+      )
       .orderBy(asc(users.name));
-    const metrics = await computeReports(tx, { from, until, consultantId });
+    const metrics = await computeReports(
+      tx,
+      { from, until, consultantId },
+      accessContext,
+    );
     return { consultants, metrics };
   });
 
@@ -246,7 +263,7 @@ function ReportsFilter({
   until,
   consultant,
 }: {
-  consultants: { id: string; name: string; role: string }[];
+  consultants: { id: string; name: string; role: AppRole }[];
   from: string;
   until: string;
   consultant: string;
@@ -267,7 +284,8 @@ function ReportsFilter({
           <option value="all">Alle</option>
           {consultants.map((c) => (
             <option key={c.id} value={c.id}>
-              {c.name} {c.role === "admin" ? "(Admin)" : ""}
+              {c.name}{" "}
+              {c.role === "consultant" ? "" : `(${getRoleLabel(c.role)})`}
             </option>
           ))}
         </select>
