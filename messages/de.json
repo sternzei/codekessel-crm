@@ -11,6 +11,7 @@
     "documents": "Dokumente",
     "applications": "Anträge",
     "reports": "Berichte",
+    "help": "Hilfe",
     "signOut": "Abmelden"
   },
   "auth": {
@@ -82,6 +83,9 @@
     "approve": "Freigeben und senden",
     "approving": "Wird gesendet …",
     "reject": "Ablehnen",
+    "cancel": "Abbrechen",
+    "approvalRestricted": "Nur Teamleitung und Administration dürfen Cloud-API-Nachrichten freigeben, ablehnen oder abbrechen.",
+    "selfApprovalRestricted": "Eigene Nachrichtenentwürfe dürfen nicht selbst freigegeben werden.",
     "channels": {
       "whatsapp": "WhatsApp",
       "email": "E-Mail",
@@ -101,7 +105,9 @@
       "cancelled": "Nachricht abgebrochen.",
       "not_found": "Nachricht nicht gefunden.",
       "not_pending": "Nachricht wurde bereits bearbeitet.",
-      "not_cancellable": "Nachricht kann nicht mehr abgebrochen werden."
+      "not_cancellable": "Nachricht kann nicht mehr abgebrochen werden.",
+      "forbidden_role": "Ihre Rolle darf Cloud-API-Nachrichten nicht freigeben, ablehnen oder abbrechen.",
+      "self_approval": "Eigene Nachrichtenentwürfe dürfen nicht selbst freigegeben werden."
     }
   },
   "placeholder": {

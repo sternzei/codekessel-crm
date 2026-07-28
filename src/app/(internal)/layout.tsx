@@ -1,7 +1,10 @@
+import Image from "next/image";
+import Link from "next/link";
 import { getTranslations } from "next-intl/server";
 import { redirect } from "next/navigation";
 import { SidebarNav } from "@/components/internal/SidebarNav";
 import { logout } from "@/modules/auth/actions";
+import { getRoleLabel } from "@/modules/auth/authorization";
 import { getSession } from "@/modules/auth/session";
 
 export default async function InternalLayout({
@@ -22,24 +25,49 @@ export default async function InternalLayout({
     { href: "/documents", label: t("documents") },
     { href: "/applications", label: t("applications") },
     { href: "/reports", label: t("reports") },
-    // Admin-only: OpenRegister company import.
+    // Product policy: OpenRegister import is admin-only; managers are excluded.
     ...(session.role === "admin"
       ? [{ href: "/leads/import", label: "Register-Import" }]
       : []),
+    { href: "/hilfe", label: t("help") },
   ];
 
   return (
     <div className="shell">
       <aside className="sidebar">
-        <div className="sidebar-brand">
-          QCG
-          <small>{tApp("name")}</small>
-        </div>
+        <Link
+          href="/pipeline"
+          className="sidebar-brand"
+          aria-label="CodeKessel – QCG Antragsplattform"
+        >
+          <span className="sidebar-brand-atmosphere" aria-hidden="true">
+            <Image
+              src="/brand/codekessel-mark.png"
+              alt=""
+              width={856}
+              height={908}
+              className="sidebar-brand-watermark"
+              priority
+            />
+          </span>
+          <span className="sidebar-brand-content">
+            <Image
+              src="/brand/codekessel-wordmark-on-dark.png"
+              alt="CodeKessel"
+              width={1024}
+              height={298}
+              className="sidebar-brand-wordmark"
+              priority
+              unoptimized
+            />
+            <small>{tApp("name")}</small>
+          </span>
+        </Link>
         <SidebarNav items={items} />
         <div className="sidebar-footer">
           <div>
             <strong>{session.name}</strong>
-            {session.role === "admin" ? "Verwaltung" : "Beratung"}
+            {getRoleLabel(session.role)}
           </div>
           <form action={logout}>
             <button

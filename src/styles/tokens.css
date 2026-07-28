@@ -7,14 +7,15 @@
   --color-ink-soft: oklch(40% 0.015 260);
   --color-ink-faint: oklch(56% 0.01 260);
   --color-line: oklch(88% 0.006 85);
-  --color-sidebar: oklch(23% 0.025 262);
-  --color-sidebar-text: oklch(88% 0.008 262);
-  --color-sidebar-muted: oklch(66% 0.015 262);
+  --color-sidebar: #120e18;
+  --color-sidebar-text: oklch(92% 0.01 300);
+  --color-sidebar-muted: oklch(70% 0.02 300);
 
-  /* Accent: confident deep blue, used sparingly and semantically */
-  --color-accent: oklch(48% 0.14 258);
-  --color-accent-strong: oklch(40% 0.15 258);
-  --color-accent-soft: oklch(94% 0.025 258);
+  /* CodeKessel canonical primary #8F14E0, sourced from codekessel.de's
+     Elementor global design tokens (post-2401.css, verified 2026-07-28). */
+  --color-accent: #8f14e0;
+  --color-accent-strong: #7410b8;
+  --color-accent-soft: #f3e8fb;
 
   /* Semantic status */
   --color-ok: oklch(55% 0.13 150);

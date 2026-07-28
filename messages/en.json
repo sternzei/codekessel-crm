@@ -10,6 +10,7 @@
     "documents": "Documents",
     "applications": "Applications",
     "reports": "Reports",
+    "help": "Help",
     "signOut": "Sign out"
   },
   "auth": {
