@@ -1,3 +1,11 @@
+# Services:
+#   db     — Postgres 16 (always started; host port 5433 matches
+#            MIGRATION_DATABASE_URL in .env.example, so it also unblocks local dev).
+#   web    — the Next.js app (runs migrations, then serves).   [profile: app]
+#   worker — the reminder/escalation loop.                      [profile: app]
+#
+# `docker compose up -d` starts ONLY db (keeps `pnpm db:reset` fast).
+# `docker compose --profile app up -d --build` starts the full prod-like stack.
 services:
   db:
     image: postgres:16-alpine
@@ -16,6 +24,52 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+
+  web:
+    profiles: ["app"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: qcg/sales-automation:local
+    container_name: qcg-web
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      # Containers reach the db service on the internal network port 5432.
+      DATABASE_URL: ${DATABASE_URL:-postgres://qcg_app:qcg_app_dev_pw@db:5432/qcg}
+      MIGRATION_DATABASE_URL: ${MIGRATION_DATABASE_URL:-postgres://postgres:postgres@db:5432/qcg}
+      AUTH_SECRET: ${AUTH_SECRET:-dev-only-auth-secret-change-me}
+      TOKEN_SECRET: ${TOKEN_SECRET:-dev-only-token-secret-change-me}
+      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:3000}
+      STORAGE_DRIVER: ${STORAGE_DRIVER:-local}
+    ports:
+      - "3000:3000"
+    # Apply migrations (owner role) before serving the RLS-scoped app.
+    command: sh -c "node_modules/.bin/drizzle-kit migrate && node server.js"
+
+  worker:
+    profiles: ["app"]
+    image: qcg/sales-automation:local
+    container_name: qcg-worker
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      # Ensures the shared image is built and migrations have run first.
+      web:
+        condition: service_started
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: ${DATABASE_URL:-postgres://qcg_app:qcg_app_dev_pw@db:5432/qcg}
+      MIGRATION_DATABASE_URL: ${MIGRATION_DATABASE_URL:-postgres://postgres:postgres@db:5432/qcg}
+      AUTH_SECRET: ${AUTH_SECRET:-dev-only-auth-secret-change-me}
+      TOKEN_SECRET: ${TOKEN_SECRET:-dev-only-token-secret-change-me}
+      APP_BASE_URL: ${APP_BASE_URL:-http://localhost:3000}
+      STORAGE_DRIVER: ${STORAGE_DRIVER:-local}
+    command: node --import tsx src/jobs/worker.ts --loop
 
 volumes:
   qcg-pgdata:

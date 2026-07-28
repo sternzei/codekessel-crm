@@ -1,4 +1,3 @@
-import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { eq, inArray } from "drizzle-orm";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
@@ -11,6 +10,7 @@ import {
   participants,
   signatures,
 } from "@/db/schema";
+import { getStorage } from "@/modules/storage";
 import {
   evaluateUploadSet,
   resolveApplicantType,
@@ -125,21 +125,20 @@ export async function buildApplicationPackage(
   });
 
   // Append every document
+  const storage = getStorage();
   let fileCount = 0;
   for (const doc of docs) {
     // Include the signed artifact (stamp + certificate) when present.
-    const relPath = (doc.signedFilePath ?? doc.filePath) as string;
-    const absolute = path.resolve(process.cwd(), relPath);
-    if (!absolute.startsWith(path.join(process.cwd(), "var") + path.sep)) continue;
+    const storageKey = (doc.signedFilePath ?? doc.filePath) as string;
 
     let bytes: Buffer;
     try {
-      bytes = await readFile(absolute);
+      bytes = await storage.get(storageKey);
     } catch {
       continue;
     }
 
-    const ext = path.extname(absolute).toLowerCase();
+    const ext = path.extname(storageKey).toLowerCase();
     if (ext === ".pdf") {
       const source = await PDFDocument.load(bytes);
       const pages = await merged.copyPages(source, source.getPageIndices());

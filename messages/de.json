@@ -5,6 +5,7 @@
   "nav": {
     "pipeline": "Pipeline",
     "tasks": "Aufgaben",
+    "outbox": "Postausgang",
     "appointments": "Termine",
     "employers": "Arbeitgeber",
     "documents": "Dokumente",
@@ -66,6 +67,41 @@
         "not_applicable": "Aufgabe eignet sich nicht für WhatsApp.",
         "failed": "WhatsApp konnte nicht geöffnet werden. Bitte später erneut versuchen."
       }
+    }
+  },
+  "outbox": {
+    "title": "Postausgang",
+    "subtitle": "Ausgehende Nachrichten warten auf Ihre Freigabe. Es wird nichts automatisch versendet.",
+    "empty": "Keine Nachrichten zur Freigabe.",
+    "recipient": "Empfänger:in",
+    "sender": "Absender",
+    "channel": "Kanal",
+    "preview": "Vorschau",
+    "reasonLabel": "Ablehnungsgrund (optional)",
+    "reasonPlaceholder": "Grund für die Ablehnung …",
+    "approve": "Freigeben und senden",
+    "approving": "Wird gesendet …",
+    "reject": "Ablehnen",
+    "channels": {
+      "whatsapp": "WhatsApp",
+      "email": "E-Mail",
+      "internal": "Intern",
+      "magic_link": "Aufgaben-Link"
+    },
+    "recipientKind": {
+      "participant": "Teilnehmer:in",
+      "employer": "Arbeitgeber",
+      "internal_user": "Intern"
+    },
+    "banners": {
+      "queued": "Nachricht zur Freigabe erstellt. Bitte prüfen und freigeben.",
+      "dispatched": "Nachricht freigegeben und versendet.",
+      "failed": "Versand fehlgeschlagen. Bitte später erneut versuchen.",
+      "rejected": "Nachricht abgelehnt. Sie wird nicht versendet.",
+      "cancelled": "Nachricht abgebrochen.",
+      "not_found": "Nachricht nicht gefunden.",
+      "not_pending": "Nachricht wurde bereits bearbeitet.",
+      "not_cancellable": "Nachricht kann nicht mehr abgebrochen werden."
     }
   },
   "placeholder": {

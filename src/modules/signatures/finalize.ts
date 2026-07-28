@@ -1,4 +1,3 @@
-import path from "node:path";
 import { eq, sql } from "drizzle-orm";
 import type { DbHandle } from "@/db/client";
 import { documents, signatures } from "@/db/schema";
@@ -55,9 +54,7 @@ export async function finalizeIfComplete(
         signedAt: s.signedAt ?? new Date(),
         ipAddress: s.ipAddress ?? "unknown",
         provider: s.provider,
-        imagePath: s.signatureImagePath
-          ? path.resolve(process.cwd(), s.signatureImagePath)
-          : null,
+        imagePath: s.signatureImagePath ?? null,
       })),
     });
     await tx

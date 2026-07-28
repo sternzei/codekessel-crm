@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import type { DbHandle } from "@/db/client";
 import { messageDeliveries, participants } from "@/db/schema";
 import { normalizePhone } from "@/modules/participants/phone";
@@ -73,9 +73,42 @@ export async function applyStatusReceipt(
 }
 
 /**
- * Apply one inbound reply: reopen the participant's 24h WhatsApp session window
- * (matched by normalized phone). Employers have no WhatsApp consent/window model
- * in this app, so only participants are reopened. Unknown numbers are ignored.
+ * Resolve which tenant "owns" an inbound number: the tenant of the most recent
+ * outbound delivery we sent to a participant with this normalized phone. The
+ * Meta webhook carries no tenant and runs on the RLS-bypassing owner
+ * connection, so this is the only trustworthy tenant boundary — without it a
+ * reply would match participants by phone across ALL tenants.
+ */
+async function resolveInboundOwner(
+  db: DbHandle,
+  normalizedPhone: string,
+): Promise<{ tenantId: string; participantId: string } | null> {
+  const [owner] = await db
+    .select({
+      tenantId: messageDeliveries.tenantId,
+      participantId: participants.id,
+    })
+    .from(messageDeliveries)
+    .innerJoin(participants, eq(messageDeliveries.recipientId, participants.id))
+    .where(
+      and(
+        eq(messageDeliveries.recipientKind, "participant"),
+        eq(participants.phoneNormalized, normalizedPhone),
+      ),
+    )
+    .orderBy(desc(messageDeliveries.createdAt))
+    .limit(1);
+  return owner ?? null;
+}
+
+/**
+ * Apply one inbound reply: reopen the participant's 24h WhatsApp session window.
+ * The owning tenant is resolved from prior outbound delivery context, and the
+ * update is scoped to that exact (tenant, participant) — so a reply can never
+ * touch a same-phone participant in another tenant. If no owning tenant can be
+ * resolved (we never messaged this number), NO cross-tenant write is made
+ * (fail closed). Employers have no WhatsApp window model, so only participants
+ * are reopened.
  */
 export async function applyInboundReceipt(
   db: DbHandle,
@@ -83,10 +116,17 @@ export async function applyInboundReceipt(
 ): Promise<boolean> {
   const normalized = normalizePhone({ raw: event.fromPhone }).normalized;
   if (!normalized) return false;
+  const owner = await resolveInboundOwner(db, normalized);
+  if (!owner) return false;
   const updated = await db
     .update(participants)
     .set({ whatsappWindowExpiresAt: computeSessionWindowExpiry(event.occurredAt) })
-    .where(eq(participants.phoneNormalized, normalized))
+    .where(
+      and(
+        eq(participants.id, owner.participantId),
+        eq(participants.tenantId, owner.tenantId),
+      ),
+    )
     .returning({ id: participants.id });
   return updated.length > 0;
 }

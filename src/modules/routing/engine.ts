@@ -3,7 +3,8 @@ import { z } from "zod";
 import type { DbHandle } from "@/db/client";
 import { reminderJobs, routingRules, tasks } from "@/db/schema";
 import { logActivity } from "@/modules/audit/log";
-import { resolveRecipient, sendTaskMessage } from "@/modules/messaging/send";
+import { enqueueTaskMessage } from "@/modules/messaging/outbox";
+import { resolveRecipient } from "@/modules/messaging/send";
 import { ACTIVE_TASK_STATUSES, isActiveTaskStatus } from "@/modules/tasks/status";
 import { issueMagicLink } from "@/modules/tokens/service";
 
@@ -187,7 +188,11 @@ export async function processTransition(
   return { createdTaskIds };
 }
 
-/** External owners get a magic link + an immediate channel message. */
+/**
+ * External owners get a magic link + a channel message QUEUED for approval.
+ * Nothing is dispatched here: enqueueTaskMessage writes a pending outbox row
+ * that a signed-in user must approve before it reaches the provider.
+ */
 async function dispatchExternal(
   tx: DbHandle,
   event: TransitionEvent,
@@ -220,7 +225,7 @@ async function dispatchExternal(
       ? ("email" as const)
       : ("whatsapp" as const);
 
-  await sendTaskMessage(tx, {
+  await enqueueTaskMessage(tx, {
     tenantId: event.tenantId,
     taskId,
     channel,

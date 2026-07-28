@@ -1,8 +1,6 @@
 "use server";
 
 import { createHash } from "node:crypto";
-import { mkdir, writeFile } from "node:fs/promises";
-import path from "node:path";
 import { and, eq } from "drizzle-orm";
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
@@ -12,6 +10,7 @@ import { applications, documents, participants } from "@/db/schema";
 import { logActivity } from "@/modules/audit/log";
 import { getSession } from "@/modules/auth/session";
 import { processTransition } from "@/modules/routing/engine";
+import { buildStorageKey, getStorage } from "@/modules/storage";
 import { buildApplicationPackage } from "./package";
 import {
   ApplicationNotReadyError,
@@ -140,10 +139,11 @@ export async function exportApplicationPackage(
       .where(eq(applications.id, applicationId));
     if (!application) return;
 
-    const dir = path.join(process.cwd(), "var", "documents");
-    await mkdir(dir, { recursive: true });
-    const fileName = `${crypto.randomUUID()}.pdf`;
-    await writeFile(path.join(dir, fileName), result.bytes);
+    const filePath = await getStorage().put({
+      key: buildStorageKey({ prefix: "documents", extension: "pdf" }),
+      bytes: result.bytes,
+      contentType: "application/pdf",
+    });
 
     const [doc] = await tx
       .insert(documents)
@@ -155,7 +155,7 @@ export async function exportApplicationPackage(
         participantId: application.participantId,
         employerId: application.employerId,
         applicationId,
-        filePath: path.join("var", "documents", fileName),
+        filePath,
         sha256: createHash("sha256").update(result.bytes).digest("hex"),
       })
       .returning({ id: documents.id });

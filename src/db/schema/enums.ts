@@ -133,6 +133,22 @@ export const reminderStatus = pgEnum("reminder_status", [
   "cancelled",
 ]);
 
+// Approval-before-send lifecycle for system-dispatched outbound messages.
+// Nothing leaves the system until a signed-in user approves a pending row.
+// pending_approval → approved → sending → sent → delivered / failed, plus the
+// human decision branches rejected / cancelled. Kept as an enum (not free text)
+// because the whole state machine keys on these exact values.
+export const outboundMessageStatus = pgEnum("outbound_message_status", [
+  "pending_approval",
+  "approved",
+  "sending",
+  "sent",
+  "delivered",
+  "failed",
+  "rejected",
+  "cancelled",
+]);
+
 export const consentKind = pgEnum("consent_kind", [
   "privacy_policy",
   "contact_consent",

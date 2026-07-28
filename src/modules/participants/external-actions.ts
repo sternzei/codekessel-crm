@@ -1,8 +1,6 @@
 "use server";
 
 import { createHash } from "node:crypto";
-import { mkdir, writeFile } from "node:fs/promises";
-import path from "node:path";
 import { eq } from "drizzle-orm";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
@@ -19,6 +17,7 @@ import { extensionFor, sniffUploadType, type SniffedUploadType } from "@/lib/fil
 import { logActivity } from "@/modules/audit/log";
 import { normalizePhone } from "@/modules/participants/phone";
 import { processTransition } from "@/modules/routing/engine";
+import { buildStorageKey, getStorage } from "@/modules/storage";
 import {
   completeTaskViaToken,
   loadTokenContext,
@@ -268,7 +267,6 @@ export async function giveConsent(formData: FormData): Promise<void> {
 // Document upload
 // ---------------------------------------------------------------------------
 
-const UPLOAD_DIR = path.join(process.cwd(), "var", "uploads");
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
 const ALLOWED_TYPES = new Set([
   "application/pdf",
@@ -316,13 +314,16 @@ export async function uploadDocuments(formData: FormData): Promise<void> {
     // inserts no duplicate document rows.
     if (!(await completeTaskViaToken(tx, ctx))) return false;
 
-    await mkdir(UPLOAD_DIR, { recursive: true });
-
+    const storage = getStorage();
     for (const file of accepted) {
       const sha256 = createHash("sha256").update(file.bytes).digest("hex");
-      // Stored under a random name — user-supplied filenames never touch disk.
-      const fileName = `${crypto.randomUUID()}.${extensionFor(file.type)}`;
-      await writeFile(path.join(UPLOAD_DIR, fileName), file.bytes);
+      // Stored under a random key — user-supplied filenames never reach storage.
+      const contentType = file.type;
+      const key = await storage.put({
+        key: buildStorageKey({ prefix: "uploads", extension: extensionFor(file.type) }),
+        bytes: file.bytes,
+        contentType,
+      });
 
       await tx.insert(documents).values({
         tenantId: signature.tenantId,
@@ -330,7 +331,7 @@ export async function uploadDocuments(formData: FormData): Promise<void> {
         title: file.name.slice(0, 200),
         status: "submitted",
         participantId: ctx.tokenRow.subjectId,
-        filePath: path.join("var", "uploads", fileName),
+        filePath: key,
         sha256,
       });
     }

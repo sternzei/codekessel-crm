@@ -13,9 +13,11 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import * as schema from "@/db/schema";
 import { logger } from "@/lib/logger";
-import { resolveRecipient, sendTaskMessage } from "@/modules/messaging/send";
+import { enqueueTaskMessage } from "@/modules/messaging/outbox";
+import { resolveRecipient } from "@/modules/messaging/send";
 import { ACTIVE_TASK_STATUSES, isActiveTaskStatus } from "@/modules/tasks/status";
 import { getOrIssueMagicLinkForTask } from "@/modules/tokens/service";
+import { computePollDelay } from "./poll";
 
 const url = process.env.MIGRATION_DATABASE_URL;
 if (!url) throw new Error("MIGRATION_DATABASE_URL is not set");
@@ -26,12 +28,20 @@ const db = drizzle(sql, { schema });
 const { reminderJobs, tasks, participants, users, activityLog } = schema;
 
 const POLL_INTERVAL_MS = 15_000;
+// Up to 3s of random jitter per tick so replicas don't poll in lockstep.
+const POLL_JITTER_MS = 3_000;
 // A claimed ('sending') job whose worker died is reclaimed after this window.
 const STALE_CLAIM_MS = 10 * 60_000;
 const MAX_ATTEMPTS = 3;
 const RETRY_DELAY_MS = 5 * 60_000;
+// Emit a heartbeat roughly once a minute (every N idle ticks) so an external
+// monitor can detect a stalled/dead worker even when nothing is due.
+const HEARTBEAT_EVERY_TICKS = 4;
 
-type DispatchOutcome = "sent" | "no_recipient" | "failed";
+// "queued" = a pending outbound message was written to the approval outbox; the
+// reminder is considered handled. No message is dispatched by the worker — a
+// signed-in user must approve the queued row before it reaches the provider.
+type DispatchOutcome = "queued" | "no_recipient" | "failed";
 
 export async function runOnce(): Promise<{
   remindersSent: number;
@@ -99,7 +109,7 @@ async function drainDueReminders(): Promise<number> {
       let outcome: DispatchOutcome;
       if (job.channel === "internal") {
         outcome = (await createReminderCallTask(task, job.templateKey))
-          ? "sent"
+          ? "queued"
           : "no_recipient";
       } else if (job.channel === "whatsapp" || job.channel === "email") {
         outcome = await sendExternalReminder(task, job.channel, job.templateKey);
@@ -107,7 +117,7 @@ async function drainDueReminders(): Promise<number> {
         outcome = "no_recipient";
       }
 
-      if (outcome === "sent") {
+      if (outcome === "queued") {
         await db
           .update(reminderJobs)
           .set({ status: "sent", sentAt: new Date(), attempts: job.attempts + 1 })
@@ -181,7 +191,10 @@ async function sendExternalReminder(
       ? await getOrIssueMagicLinkForTask(db, task)
       : null;
 
-  const ok = await sendTaskMessage(db, {
+  // Approval gate: enqueue a pending outbox row instead of dispatching. A
+  // signed-in user must approve it before it reaches the WhatsApp/email
+  // provider — the worker never auto-sends.
+  const ok = await enqueueTaskMessage(db, {
     tenantId: task.tenantId,
     taskId: task.id,
     channel,
@@ -193,7 +206,7 @@ async function sendExternalReminder(
       ...(link ? { link } : {}),
     },
   });
-  return ok ? "sent" : "failed";
+  return ok ? "queued" : "failed";
 }
 
 /** "Reminder call" step: an internal task for the responsible consultant. */
@@ -365,9 +378,37 @@ async function resolveResponsibleUser(
 
 // --- Entrypoint -------------------------------------------------------------
 
+// Flipped false by SIGTERM/SIGINT so the loop finishes its current tick and
+// exits cleanly (closing the pool) instead of being hard-killed mid-query.
+let running = true;
+// Wakes an in-progress sleep early so shutdown doesn't wait a whole interval.
+let wake: (() => void) | null = null;
+
+function interruptibleSleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      wake = null;
+      resolve();
+    }, ms);
+    wake = () => {
+      clearTimeout(timer);
+      wake = null;
+      resolve();
+    };
+  });
+}
+
+function requestShutdown(signal: string): void {
+  if (!running) return;
+  logger.info("reminder worker shutdown requested", { signal });
+  running = false;
+  wake?.();
+}
+
 async function loop(): Promise<void> {
   logger.info("reminder worker started", { intervalMs: POLL_INTERVAL_MS });
-  for (;;) {
+  let ticks = 0;
+  while (running) {
     try {
       const { remindersSent, tasksEscalated } = await runOnce();
       if (remindersSent || tasksEscalated) {
@@ -378,11 +419,23 @@ async function loop(): Promise<void> {
         message: error instanceof Error ? error.message : "unknown",
       });
     }
-    await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
+    ticks += 1;
+    // Heartbeat so a monitor can distinguish "alive but idle" from "dead".
+    if (ticks % HEARTBEAT_EVERY_TICKS === 0) {
+      logger.info("worker heartbeat", { ticks });
+    }
+    if (!running) break;
+    await interruptibleSleep(
+      computePollDelay({ baseMs: POLL_INTERVAL_MS, maxJitterMs: POLL_JITTER_MS }),
+    );
   }
+  await sql.end();
+  logger.info("reminder worker stopped");
 }
 
 if (process.argv.includes("--loop")) {
+  process.on("SIGTERM", () => requestShutdown("SIGTERM"));
+  process.on("SIGINT", () => requestShutdown("SIGINT"));
   void loop();
 } else if (process.argv.includes("--once")) {
   runOnce()

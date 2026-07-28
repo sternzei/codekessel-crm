@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
+import { buildStorageKey, getStorage } from "@/modules/storage";
 import {
   BA_TEMPLATES,
   buildArbeitnehmererklaerungValues,
@@ -21,8 +22,10 @@ import type { ApplicationData } from "./data";
 //  B) Generation: documents we own (cost overview, employer data sheet)
 //     drawn directly with pdf-lib.
 
+// Bundled, read-only form templates ship with the app, so they stay on the
+// local filesystem. Only participant uploads + generated/signed artifacts go
+// through the durable storage adapter.
 const TEMPLATE_DIR = path.join(process.cwd(), "templates", "pdf");
-const OUTPUT_DIR = path.join(process.cwd(), "var", "documents");
 
 const SAMPLE_TEMPLATE = "teilnehmer-stammblatt";
 
@@ -99,14 +102,17 @@ export async function ensureSampleTemplate(): Promise<string> {
   return filePath;
 }
 
+// `relativePath` is the durable storage key persisted on the document row.
 export type GeneratedFile = { relativePath: string; sha256: string };
 
 async function persist(bytes: Uint8Array): Promise<GeneratedFile> {
-  await mkdir(OUTPUT_DIR, { recursive: true });
-  const name = `${crypto.randomUUID()}.pdf`;
-  await writeFile(path.join(OUTPUT_DIR, name), bytes);
+  const relativePath = await getStorage().put({
+    key: buildStorageKey({ prefix: "documents", extension: "pdf" }),
+    bytes,
+    contentType: "application/pdf",
+  });
   return {
-    relativePath: path.join("var", "documents", name),
+    relativePath,
     sha256: createHash("sha256").update(bytes).digest("hex"),
   };
 }
@@ -292,7 +298,7 @@ export type SignatureStamp = {
   signedAt: Date;
   ipAddress: string;
   provider: string;
-  /** Absolute path to the drawn signature PNG (canvas provider). */
+  /** Storage key of the drawn signature PNG (canvas provider). */
   imagePath: string | null;
 };
 
@@ -315,8 +321,8 @@ export async function generateSignedArtifact(params: {
   originalSha256: string;
   signatures: SignatureStamp[];
 }): Promise<GeneratedFile> {
-  const originalAbsolute = path.resolve(process.cwd(), params.originalRelativePath);
-  const doc = await PDFDocument.load(await readFile(originalAbsolute));
+  const storage = getStorage();
+  const doc = await PDFDocument.load(await storage.get(params.originalRelativePath));
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
 
@@ -328,7 +334,7 @@ export async function generateSignedArtifact(params: {
     params.signatures.map(async (s) => {
       if (!s.imagePath) return null;
       try {
-        return await doc.embedPng(await readFile(s.imagePath));
+        return await doc.embedPng(await storage.get(s.imagePath));
       } catch {
         return null;
       }

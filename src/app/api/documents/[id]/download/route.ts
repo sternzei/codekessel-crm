@@ -1,9 +1,9 @@
-import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { eq } from "drizzle-orm";
 import { withTenant } from "@/db/client";
 import { documents } from "@/db/schema";
 import { getSession } from "@/modules/auth/session";
+import { getStorage } from "@/modules/storage";
 
 // Internal document download: session required; RLS scopes the lookup.
 export async function GET(
@@ -29,22 +29,21 @@ export async function GET(
   const servePath = doc?.signedFilePath ?? doc?.filePath;
   if (!servePath) return new Response("Not found", { status: 404 });
 
-  const absolute = path.resolve(process.cwd(), servePath);
-  if (!absolute.startsWith(path.join(process.cwd(), "var") + path.sep)) {
-    return new Response("Not found", { status: 404 });
-  }
-
+  // servePath is a storage key we wrote (never client-supplied). The adapter
+  // enforces its own boundaries (local: within the storage root; s3: within the
+  // bucket/prefix); a bad/missing key surfaces as a rejected get → 404.
+  const extension = path.extname(servePath).toLowerCase();
   const contentType =
     { ".pdf": "application/pdf", ".png": "image/png", ".jpg": "image/jpeg" }[
-      path.extname(absolute)
+      extension
     ] ?? "application/octet-stream";
 
   try {
-    const bytes = await readFile(absolute);
+    const bytes = await getStorage().get(servePath);
     return new Response(new Uint8Array(bytes), {
       headers: {
         "Content-Type": contentType,
-        "Content-Disposition": `inline; filename="${doc.title.replaceAll('"', "")}${path.extname(absolute)}"`,
+        "Content-Disposition": `inline; filename="${doc.title.replaceAll('"', "")}${extension}"`,
         "Cache-Control": "private, no-store",
       },
     });

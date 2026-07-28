@@ -1,8 +1,7 @@
-import { readFile } from "node:fs/promises";
-import path from "node:path";
 import { eq } from "drizzle-orm";
 import { withTenant } from "@/db/client";
 import { documents, signatures } from "@/db/schema";
+import { getStorage } from "@/modules/storage";
 import {
   loadTokenContext,
   verifyTokenSignature,
@@ -43,15 +42,10 @@ export async function GET(
 
   if (!filePath) return new Response("Not found", { status: 404 });
 
-  // filePath is app-generated ("var/documents/<uuid>.pdf") — resolve inside
-  // the project root and reject anything that escapes it.
-  const absolute = path.resolve(process.cwd(), filePath);
-  if (!absolute.startsWith(path.join(process.cwd(), "var") + path.sep)) {
-    return new Response("Not found", { status: 404 });
-  }
-
+  // filePath is an app-generated storage key; the adapter enforces its own
+  // boundaries and a missing object surfaces as a rejected get → 404.
   try {
-    const bytes = await readFile(absolute);
+    const bytes = await getStorage().get(filePath);
     return new Response(new Uint8Array(bytes), {
       headers: {
         "Content-Type": "application/pdf",

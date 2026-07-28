@@ -9,7 +9,8 @@ import { logActivity } from "@/modules/audit/log";
 import { getSession } from "@/modules/auth/session";
 import { resolveAdapterMode } from "@/modules/messaging/adapters";
 import { buildWaMeUrl, toWaMeNumber } from "@/modules/messaging/click-to-chat";
-import { resolveRecipient, sendTaskMessage } from "@/modules/messaging/send";
+import { enqueueTaskMessage } from "@/modules/messaging/outbox";
+import { resolveRecipient } from "@/modules/messaging/send";
 import { renderTemplate } from "@/modules/messaging/templates";
 import { normalizePhone } from "@/modules/participants/phone";
 import {
@@ -93,9 +94,10 @@ export async function revokeTaskLink(formData: FormData): Promise<void> {
   redirect(`/tasks?revoked=${revokedCount}`);
 }
 
-// Manual-send outcomes surfaced back to the tasks page via ?wa=<outcome>.
+// Manual-send outcomes surfaced back via a redirect. "queued" means a pending
+// outbox row was created for later human approval — nothing was dispatched.
 type WhatsAppSendOutcome =
-  | "ok"
+  | "queued"
   | "no_phone"
   | "no_consent"
   | "not_applicable"
@@ -125,12 +127,13 @@ async function hasWhatsAppOptIn(
 }
 
 /**
- * Sends a task's message over WhatsApp from the internal console. Tenant-scoped
- * and session-guarded like every other task action. Resolves the recipient,
- * requires a phone, and — only in LIVE mode — requires a WhatsApp opt-in for
- * participant recipients. In demo/mock mode the MockAdapter just logs, so no
- * consent is required and no network call is made. Reuses sendTaskMessage +
- * the existing `task_<type>` templates (no new template infrastructure).
+ * Queues a task's WhatsApp message for approval from the internal console.
+ * Tenant-scoped and session-guarded like every other task action. Resolves the
+ * recipient, requires a phone, and — only in LIVE mode — requires a WhatsApp
+ * opt-in for participant recipients. Instead of dispatching, it writes a pending
+ * outbox row (enqueueTaskMessage): a signed-in user must approve it in the
+ * Postausgang before anything reaches the WhatsApp Cloud API. Reuses the
+ * existing `task_<type>` templates (no new template infrastructure).
  */
 export async function sendTaskWhatsApp(formData: FormData): Promise<void> {
   const session = await getSession();
@@ -175,7 +178,7 @@ export async function sendTaskWhatsApp(formData: FormData): Promise<void> {
           ? await getOrIssueMagicLinkForTask(tx, task)
           : null;
 
-      const ok = await sendTaskMessage(tx, {
+      const ok = await enqueueTaskMessage(tx, {
         tenantId: session.tenantId,
         taskId: task.id,
         channel: "whatsapp",
@@ -194,15 +197,15 @@ export async function sendTaskWhatsApp(formData: FormData): Promise<void> {
         actorUserId: session.id,
         subjectKind: "task",
         subjectId: task.id,
-        event: "whatsapp_manual_sent",
+        event: "whatsapp_manual_queued",
         meta: { ok, recipientKind: ownerKind },
       });
 
-      return ok ? "ok" : "failed";
+      return ok ? "queued" : "failed";
     },
   );
 
-  redirect(`/tasks?wa=${outcome}`);
+  redirect(outcome === "queued" ? "/outbox?queued=1" : `/tasks?wa=${outcome}`);
 }
 
 // Result of building a WhatsApp click-to-chat deep link. Returned (not

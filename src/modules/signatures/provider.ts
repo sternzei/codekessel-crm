@@ -1,5 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
-import path from "node:path";
+import { getStorage } from "@/modules/storage";
 
 // Provider seam for signatures. The MVP ships the canvas provider (eIDAS
 // "simple" level: drawn signature + audit evidence). Skribble / Yousign
@@ -24,21 +23,21 @@ export type FinalizeParams = {
 
 export interface SignatureProvider {
   readonly id: string;
-  /** Persists provider-specific artifacts, returns stored artifact path. */
+  /** Persists provider-specific artifacts, returns the stored artifact key. */
   finalize(params: FinalizeParams): Promise<{ imagePath: string | null }>;
 }
-
-const SIGNATURE_DIR = path.join(process.cwd(), "var", "signatures");
 
 class CanvasSignatureProvider implements SignatureProvider {
   readonly id = "canvas";
 
   async finalize(params: FinalizeParams): Promise<{ imagePath: string | null }> {
     if (!params.imageBytes) return { imagePath: null };
-    await mkdir(SIGNATURE_DIR, { recursive: true });
-    const name = `${params.signatureId}.png`;
-    await writeFile(path.join(SIGNATURE_DIR, name), params.imageBytes);
-    return { imagePath: path.join("var", "signatures", name) };
+    const imagePath = await getStorage().put({
+      key: `signatures/${params.signatureId}.png`,
+      bytes: params.imageBytes,
+      contentType: "image/png",
+    });
+    return { imagePath };
   }
 }
 

@@ -16,6 +16,7 @@ export default async function InternalLayout({
   const items = [
     { href: "/pipeline", label: t("pipeline") },
     { href: "/tasks", label: t("tasks") },
+    { href: "/outbox", label: t("outbox") },
     { href: "/appointments", label: t("appointments") },
     { href: "/employers", label: t("employers") },
     { href: "/documents", label: t("documents") },
