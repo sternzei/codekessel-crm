@@ -5,6 +5,8 @@ import { withTenant } from "@/db/client";
 import { getSession } from "@/modules/auth/session";
 import {
   getLeadDetail,
+  LEAD_ACTIVITY_MAX,
+  LEAD_ACTIVITY_PAGE_SIZE,
   listEmployerOptions,
   listMeasureOptions,
   type LeadDetail,
@@ -47,6 +49,7 @@ export default async function LeadDetailPage({
     uploadLink?: string;
     access?: "must_claim" | "forbidden";
     assignment?: "saved" | "forbidden";
+    activityLimit?: string;
   }>;
 }) {
   const session = await getSession();
@@ -62,15 +65,29 @@ export default async function LeadDetailPage({
     uploadLink,
     access,
     assignment,
+    activityLimit: activityLimitRaw,
   } =
     await searchParams;
   const tStatus = await getTranslations("status.participant");
+  const tActivity = await getTranslations("activity");
+  const parsedActivityLimit = Number.parseInt(activityLimitRaw ?? "", 10);
+  const activityLimit = Number.isFinite(parsedActivityLimit)
+    ? Math.min(
+        Math.max(LEAD_ACTIVITY_PAGE_SIZE, parsedActivityLimit),
+        LEAD_ACTIVITY_MAX,
+      )
+    : LEAD_ACTIVITY_PAGE_SIZE;
 
   const data = await withTenant(session.tenantId, async (tx) => {
-    const detail = await getLeadDetail(tx, id, {
-      userId: session.id,
-      role: session.role,
-    });
+    const detail = await getLeadDetail(
+      tx,
+      id,
+      {
+        userId: session.id,
+        role: session.role,
+      },
+      { activityLimit },
+    );
     if (!detail) return null;
     const [employerOptions, measureOptions] = await Promise.all([
       listEmployerOptions(tx),
@@ -477,19 +494,55 @@ export default async function LeadDetailPage({
             )}
           </section>
 
-          <section className="section" aria-label="Verlauf">
-            <h2>Verlauf</h2>
-            <ul className="timeline" style={{ margin: 0, padding: 0 }}>
-              {data.activity.map((entry) => (
-                <li key={entry.id}>
-                  <span className="event">{entry.event}</span>
-                  {entry.meta && "status" in (entry.meta as object)
-                    ? ` → ${(entry.meta as { status?: string }).status}`
-                    : ""}{" "}
-                  · {fmtDateTime(entry.createdAt)}
-                </li>
-              ))}
-            </ul>
+          <section className="section" aria-label={tActivity("title")}>
+            <h2>{tActivity("title")}</h2>
+            {data.activity.length === 0 ? (
+              <p className="empty-state">{tActivity("empty")}</p>
+            ) : (
+              <ul className="timeline" style={{ margin: 0, padding: 0 }}>
+                {data.activity.map((entry) => {
+                  const label = tActivity.has(`events.${entry.event}`)
+                    ? tActivity(`events.${entry.event}`)
+                    : entry.event;
+                  const actorLabel =
+                    entry.actorName ??
+                    (entry.actorKind === "system"
+                      ? tActivity("system")
+                      : null);
+                  const statusMeta =
+                    entry.meta &&
+                    typeof entry.meta === "object" &&
+                    "status" in entry.meta
+                      ? ` → ${(entry.meta as { status?: string }).status}`
+                      : "";
+                  return (
+                    <li key={entry.id}>
+                      <span className="event">{label}</span>
+                      {statusMeta}
+                      {actorLabel
+                        ? ` · ${tActivity("by", { name: actorLabel })}`
+                        : ""}{" "}
+                      · {fmtDateTime(entry.createdAt)}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+            {data.activity.length >= activityLimit &&
+            activityLimit < LEAD_ACTIVITY_MAX ? (
+              <p style={{ marginTop: "var(--space-3)" }}>
+                <Link
+                  href={`/leads/${id}?activityLimit=${Math.min(
+                    activityLimit + LEAD_ACTIVITY_PAGE_SIZE,
+                    LEAD_ACTIVITY_MAX,
+                  )}`}
+                  className="button button--sm button--ghost"
+                  aria-label={tActivity("loadMore")}
+                >
+                  {tActivity("loadMore")}
+                </Link>
+              </p>
+            ) : null}
           </section>
         </div>
       </div>

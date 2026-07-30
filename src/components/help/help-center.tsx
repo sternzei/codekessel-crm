@@ -4,7 +4,6 @@ import Link from "next/link";
 import {
   useMemo,
   useState,
-  useEffect,
   useRef,
   type ChangeEvent,
 } from "react";
@@ -44,18 +43,19 @@ export const HelpCenter = ({ viewerRole, viewerName }: HelpCenterProps) => {
   const router = useRouter();
   const searchParams = useSearchParams();
   const detailRef = useRef<HTMLElement | null>(null);
-  const initialTopic = searchParams.get("topic") ?? "";
+  const topicParam = searchParams.get("topic") ?? "";
   const [query, setQuery] = useState("");
   const [roleFilter, setRoleFilter] = useState<HelpRole | "all">("all");
   const [categoryFilter, setCategoryFilter] = useState<HelpCategory | "all">(
     "all",
   );
-  const [activeId, setActiveId] = useState<string>(initialTopic);
-
-  useEffect(() => {
-    const topic = searchParams.get("topic");
-    if (topic) setActiveId(topic);
-  }, [searchParams]);
+  const [activeId, setActiveId] = useState<string>(topicParam);
+  const [syncedTopic, setSyncedTopic] = useState<string>(topicParam);
+  // Keep selection aligned with ?topic= without an effect (avoids cascading render).
+  if (topicParam !== syncedTopic) {
+    setSyncedTopic(topicParam);
+    if (topicParam) setActiveId(topicParam);
+  }
 
   const featured = useMemo(
     () => HELP_ARTICLES.filter((article) => article.roles.includes(viewerRole)),

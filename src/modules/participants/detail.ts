@@ -14,14 +14,54 @@ import {
   users,
 } from "@/db/schema";
 
+export const LEAD_ACTIVITY_PAGE_SIZE = 15;
+export const LEAD_ACTIVITY_MAX = 100;
+
+export type LeadActivityEntry = {
+  readonly id: string;
+  readonly event: string;
+  readonly meta: unknown;
+  readonly createdAt: Date;
+  readonly actorKind: string;
+  readonly actorUserId: string | null;
+  readonly actorName: string | null;
+};
+
 export type LeadDetail = NonNullable<
   Awaited<ReturnType<typeof getLeadDetail>>
 >;
+
+export async function listLeadActivity(
+  tx: DbHandle,
+  participantId: string,
+  limit: number = LEAD_ACTIVITY_PAGE_SIZE,
+): Promise<LeadActivityEntry[]> {
+  const safeLimit = Math.min(
+    Math.max(1, limit),
+    LEAD_ACTIVITY_MAX,
+  );
+  return tx
+    .select({
+      id: activityLog.id,
+      event: activityLog.event,
+      meta: activityLog.meta,
+      createdAt: activityLog.createdAt,
+      actorKind: activityLog.actorKind,
+      actorUserId: activityLog.actorUserId,
+      actorName: users.name,
+    })
+    .from(activityLog)
+    .leftJoin(users, eq(activityLog.actorUserId, users.id))
+    .where(eq(activityLog.subjectId, participantId))
+    .orderBy(desc(activityLog.createdAt))
+    .limit(safeLimit);
+}
 
 export async function getLeadDetail(
   tx: DbHandle,
   id: string,
   context: ParticipantAccessContext,
+  options: { readonly activityLimit?: number } = {},
 ) {
   const [participant] = await tx
     .select()
@@ -84,12 +124,11 @@ export async function getLeadDetail(
     .orderBy(desc(tasks.createdAt))
     .limit(20);
 
-  const activity = await tx
-    .select()
-    .from(activityLog)
-    .where(eq(activityLog.subjectId, id))
-    .orderBy(desc(activityLog.createdAt))
-    .limit(15);
+  const activity = await listLeadActivity(
+    tx,
+    id,
+    options.activityLimit ?? LEAD_ACTIVITY_PAGE_SIZE,
+  );
 
   return {
     participant,

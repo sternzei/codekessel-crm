@@ -313,6 +313,18 @@ export default async function DocumentChecklistPage({
                         : "ausstehend"}
                     </p>
                   ))}
+                  {doc.status === "partially_signed" ? (
+                    <p className="meta" role="status">
+                      Unterschriften erscheinen im PDF erst, wenn alle angeforderten
+                      Parteien unterschrieben haben.
+                    </p>
+                  ) : null}
+                  {doc.status === "signed" && !doc.signedFilePath ? (
+                    <p className="meta" role="alert">
+                      Als signiert markiert, aber kein signiertes PDF erzeugt
+                      (Originaldatei fehlt).
+                    </p>
+                  ) : null}
                   <div className="quick-actions">
                     {doc.filePath ? (
                       <a
@@ -321,7 +333,9 @@ export default async function DocumentChecklistPage({
                         rel="noreferrer"
                         className="button button--sm button--ghost"
                       >
-                        PDF öffnen
+                        {doc.status === "signed" && doc.signedFilePath
+                          ? "Signiertes PDF öffnen"
+                          : "PDF öffnen"}
                       </a>
                     ) : null}
                     {doc.filePath && doc.status !== "signed" ? (

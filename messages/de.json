@@ -1,6 +1,7 @@
 {
   "app": {
-    "name": "QCG Antragsplattform"
+    "name": "QCG Antragsplattform",
+    "tagline": "Antragsplattform"
   },
   "nav": {
     "pipeline": "Pipeline",
@@ -11,6 +12,7 @@
     "documents": "Dokumente",
     "applications": "Anträge",
     "reports": "Berichte",
+    "users": "Benutzer",
     "help": "Hilfe",
     "signOut": "Abmelden"
   },
@@ -59,10 +61,10 @@
     "subtitle": "Offene Aufgaben nach Verantwortlichen",
     "empty": "Keine offenen Aufgaben.",
     "whatsapp": {
-      "send": "WhatsApp öffnen",
+      "send": "WhatsApp senden",
       "opening": "WhatsApp wird geöffnet …",
-      "opened": "WhatsApp geöffnet",
-      "open": "In WhatsApp öffnen",
+      "opened": "WhatsApp geöffnet — bitte manuell senden",
+      "open": "WhatsApp öffnen",
       "errors": {
         "no_phone": "Keine Telefonnummer hinterlegt — WhatsApp nicht möglich.",
         "not_applicable": "Aufgabe eignet sich nicht für WhatsApp.",
@@ -72,7 +74,7 @@
   },
   "outbox": {
     "title": "Postausgang",
-    "subtitle": "Ausgehende Nachrichten warten auf Ihre Freigabe. Es wird nichts automatisch versendet.",
+    "subtitle": "Ausgehende Entwürfe zur Prüfung. Firmen-WhatsApp (Cloud API) folgt nach Meta-Setup; bis dahin nutzen Sie „WhatsApp öffnen“ auf der Aufgabe.",
     "empty": "Keine Nachrichten zur Freigabe.",
     "recipient": "Empfänger:in",
     "sender": "Absender",
@@ -134,6 +136,98 @@
       "application_phase": "Antrag",
       "enrolled": "Eingeschrieben",
       "lost": "Verloren"
+    }
+  },
+  "errors": {
+    "title": "Etwas ist schiefgelaufen",
+    "body": "Die Seite konnte nicht geladen werden. Bitte versuchen Sie es erneut.",
+    "retry": "Erneut versuchen",
+    "home": "Zur Pipeline",
+    "notFoundTitle": "Seite nicht gefunden",
+    "notFoundBody": "Diese Adresse existiert nicht oder Sie haben keinen Zugriff.",
+    "tokenTitle": "Das hat nicht geklappt",
+    "tokenBody": "Bitte versuchen Sie es erneut oder wenden Sie sich an Ihre Ansprechperson.",
+    "tokenNotFoundTitle": "Link nicht gefunden",
+    "tokenNotFoundBody": "Dieser Link ist ungültig. Bitte wenden Sie sich an Ihre Ansprechperson.",
+    "tokenLoading": "Wird geladen …",
+    "tokenHome": "Schließen"
+  },
+  "users": {
+    "title": "Benutzer",
+    "subtitle": "Interne Konten für Beratung, Teamleitung und Administration.",
+    "empty": "Noch keine Benutzer.",
+    "create": "Benutzer anlegen",
+    "name": "Name",
+    "email": "E-Mail",
+    "role": "Rolle",
+    "password": "Temporäres Passwort",
+    "active": "Aktiv",
+    "inactive": "Deaktiviert",
+    "deactivate": "Deaktivieren",
+    "activate": "Aktivieren",
+    "resetPassword": "Passwort zurücksetzen",
+    "roles": {
+      "consultant": "Beratung",
+      "manager": "Teamleitung",
+      "admin": "Administration"
+    },
+    "banners": {
+      "created": "Benutzer angelegt.",
+      "updated": "Benutzer aktualisiert.",
+      "passwordReset": "Neues temporäres Passwort gesetzt.",
+      "forbidden": "Keine Berechtigung für diese Aktion.",
+      "exists": "E-Mail ist in diesem Mandanten bereits vergeben.",
+      "invalid": "Eingaben ungültig. Bitte prüfen."
+    }
+  },
+  "activity": {
+    "title": "Verlauf",
+    "loadMore": "Mehr laden",
+    "empty": "Noch keine Ereignisse.",
+    "by": "von {name}",
+    "system": "System",
+    "events": {
+      "status_changed": "Status geändert",
+      "lead_claimed": "Lead übernommen",
+      "lead_created": "Lead angelegt",
+      "lead_imported": "Lead importiert",
+      "lead_import_skipped": "Import übersprungen",
+      "lead_import_conflict": "Import-Konflikt",
+      "lead_import_refreshed": "Lead aus Register aktualisiert",
+      "employer_imported": "Arbeitgeber importiert",
+      "task_created": "Aufgabe erstellt",
+      "task_completed": "Aufgabe erledigt",
+      "task_escalated": "Aufgabe eskaliert",
+      "task_skipped_duplicate": "Doppelte Aufgabe übersprungen",
+      "link_issued": "Aufgaben-Link erstellt",
+      "link_revoked": "Aufgaben-Link widerrufen",
+      "token_used": "Aufgaben-Link verwendet",
+      "availability_reverted": "Verfügbarkeit zurückgesetzt",
+      "status_reverted": "Status zurückgesetzt",
+      "eligibility_updated": "Förderfähigkeit aktualisiert",
+      "ba_data_updated": "BA-Daten aktualisiert",
+      "setup_data_submitted": "Arbeitgeber-Setup übermittelt",
+      "documents_uploaded": "Dokumente hochgeladen",
+      "document_signed": "Dokument unterschrieben",
+      "signature_requested": "Unterschrift angefordert",
+      "package_exported": "Antragspaket exportiert",
+      "message_queued": "Nachricht zur Freigabe",
+      "message_approved": "Nachricht freigegeben",
+      "message_dispatched": "Nachricht versendet",
+      "message_dispatch_failed": "Versand fehlgeschlagen",
+      "message_rejected": "Nachricht abgelehnt",
+      "message_cancelled": "Nachricht abgebrochen",
+      "message_decision_denied": "Nachrichtenentscheidung verweigert",
+      "whatsapp_click_to_chat_opened": "WhatsApp geöffnet",
+      "whatsapp_manual_sent": "WhatsApp manuell versendet",
+      "whatsapp_manual_failed": "WhatsApp manuell fehlgeschlagen",
+      "outbox_stale_sending_detected": "Hängender Versand erkannt",
+      "user_created": "Benutzer angelegt",
+      "user_role_changed": "Rolle geändert",
+      "user_active_changed": "Benutzerstatus geändert",
+      "user_password_reset": "Passwort zurückgesetzt",
+      "contact_note_added": "Notiz hinzugefügt",
+      "appointment_scheduled": "Termin geplant"
     }
   }
 }

@@ -1,7 +1,11 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { buildWhatsAppClickToChat } from "@/modules/tasks/actions";
+import {
+  buildWhatsAppClickToChat,
+  sendTaskWhatsApp,
+} from "@/modules/tasks/actions";
+import type { AdapterMode } from "@/modules/messaging/adapters";
 
 export type TaskWhatsAppLabels = {
   send: string;
@@ -24,24 +28,39 @@ type Feedback =
   | null;
 
 /**
- * Opens WhatsApp (Web on desktop, the app on mobile) with the task message
- * prefilled via a wa.me click-to-chat link, so the consultant sends it from
- * their own account. Calls the server action to build the link (which also
- * mints a fresh magic link for magic_link tasks), then window.open()s it. If
- * the popup is blocked we render an "In WhatsApp öffnen" link instead so the
- * draft is never lost.
+ * WhatsApp action on a task row.
+ * - LIVE Cloud API: one-click send via Firmennummer.
+ * - Mock (Meta not configured yet): opens wa.me draft on the consultant's own
+ *   WhatsApp — never pretends a Cloud send succeeded.
  */
-export function TaskWhatsAppButton({
+export const TaskWhatsAppButton = ({
   taskId,
+  mode,
   labels,
 }: {
-  taskId: string;
-  labels: TaskWhatsAppLabels;
-}) {
+  readonly taskId: string;
+  readonly mode: AdapterMode;
+  readonly labels: TaskWhatsAppLabels;
+}) => {
   const [isPending, startTransition] = useTransition();
   const [feedback, setFeedback] = useState<Feedback>(null);
 
-  const handleClick = (): void => {
+  if (mode === "live") {
+    return (
+      <form action={sendTaskWhatsApp}>
+        <input type="hidden" name="taskId" value={taskId} />
+        <button
+          type="submit"
+          className="button button--sm button--ghost"
+          aria-label="Nachricht über Firmen-WhatsApp senden"
+        >
+          {labels.send}
+        </button>
+      </form>
+    );
+  }
+
+  const handleOpenWhatsApp = (): void => {
     setFeedback(null);
     startTransition(async () => {
       const result = await buildWhatsAppClickToChat(taskId);
@@ -49,8 +68,6 @@ export function TaskWhatsAppButton({
         setFeedback({ kind: "error", message: labels.errors[result.reason] });
         return;
       }
-      // window.open returns null when a popup blocker refuses the tab; fall
-      // back to a plain link the consultant can click directly.
       const opened = window.open(result.url, "_blank", "noopener");
       setFeedback(
         opened ? { kind: "opened" } : { kind: "fallback", url: result.url },
@@ -83,10 +100,11 @@ export function TaskWhatsAppButton({
       <button
         type="button"
         className="button button--sm button--ghost"
-        onClick={handleClick}
+        onClick={handleOpenWhatsApp}
         disabled={isPending}
+        aria-label="WhatsApp mit vorbereitetem Text öffnen"
       >
-        {isPending ? labels.opening : labels.send}
+        {isPending ? labels.opening : labels.open}
       </button>
       {feedback?.kind === "opened" ? (
         <span className="meta" role="status">
@@ -100,4 +118,4 @@ export function TaskWhatsAppButton({
       ) : null}
     </span>
   );
-}
+};

@@ -1,15 +1,18 @@
 {
   "app": {
-    "name": "QCG Application Platform"
+    "name": "QCG Application Platform",
+    "tagline": "Application platform"
   },
   "nav": {
     "pipeline": "Pipeline",
     "tasks": "Tasks",
+    "outbox": "Outbox",
     "appointments": "Appointments",
     "employers": "Employers",
     "documents": "Documents",
     "applications": "Applications",
     "reports": "Reports",
+    "users": "Users",
     "help": "Help",
     "signOut": "Sign out"
   },

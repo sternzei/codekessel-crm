@@ -29,7 +29,7 @@ export const HELP_ARTICLES: readonly HelpArticle[] = [
     steps: [
       "Pipeline öffnen und Schnellfilter nutzen (Erstkontakt, Pool, eigene Leads).",
       "Offene Aufgaben unter Aufgaben prüfen — Überfällige zuerst.",
-      "Eigene Entwürfe im Postausgang kontrollieren (Freigabe erfolgt durch Teamleitung/Admin).",
+      "Offene WhatsApp-Folgeschritte unter Aufgaben mit „WhatsApp senden“ auslösen.",
       "Unter Dokumente und Anträge Blocker schließen.",
     ],
     outcome: "Jeder aktive Lead hat einen klaren nächsten Schritt.",
@@ -74,40 +74,24 @@ export const HELP_ARTICLES: readonly HelpArticle[] = [
   },
   {
     id: "whatsapp-approval",
-    title: "WhatsApp: Entwurf → Freigabe → Versand",
+    title: "WhatsApp: Link zustellen (bis Cloud API live ist)",
     summary:
-      "Berater:innen queue’n Nachrichten; Teamleitung/Admin genehmigt. Self-Approval ist nicht erlaubt.",
-    category: "messages",
-    roles: ["consultant", "manager", "admin"],
-    route: "/outbox",
-    steps: [
-      "Auf der Aufgabe „WhatsApp“ wählen — Nachricht landet im Postausgang.",
-      "Teamleitung oder Admin öffnet den Postausgang.",
-      "Inhalt prüfen → Genehmigen, Ablehnen oder Abbrechen.",
-      "Nur eine Freigabe löst den Versand aus (atomar gesichert).",
-    ],
-    outcome: "Eine Nachricht, ein Versand — Trennung von Entwurf und Freigabe.",
-    tips: [
-      "Ersteller:innen können die eigene Nachricht nicht selbst freigeben.",
-      "Click-to-Chat (wa.me) bleibt ein manueller Nebenweg ohne Cloud-API.",
-    ],
-    keywords: ["whatsapp", "postausgang", "outbox", "freigabe", "genehmigen"],
-  },
-  {
-    id: "click-to-chat",
-    title: "Click-to-Chat (manuell)",
-    summary:
-      "WhatsApp im Browser/Client öffnen — der Versand bleibt manuell bei Ihnen.",
+      "Solange Meta/Cloud API nicht konfiguriert ist: WhatsApp öffnen und manuell senden. Firmennummer-Versand folgt später.",
     category: "messages",
     roles: ["consultant", "manager", "admin"],
     route: "/tasks",
     steps: [
-      "Telefonnummer am Lead prüfen.",
-      "Click-to-Chat / WhatsApp öffnen.",
-      "Text im WhatsApp-Client prüfen und manuell senden.",
+      "Auf der Aufgabe „WhatsApp öffnen“ wählen.",
+      "Vorausgefüllter Text inkl. Magic Link öffnet sich in WhatsApp (wa.me).",
+      "Nachricht im WhatsApp-Client prüfen und manuell senden.",
+      "Sobald Cloud API konfiguriert ist, erscheint stattdessen „WhatsApp senden“ (Firmennummer, ohne App).",
     ],
-    outcome: "Schneller Kontakt ohne Freigabe-Pfad.",
-    keywords: ["wa.me", "click", "chat", "manuell", "telefon"],
+    outcome: "Teilnehmer:in erhält den Link; kein vorgetäuschter Cloud-Versand.",
+    tips: [
+      "Ohne WHATSAPP_ACCESS_TOKEN meldet das System keinen Firmen-Versand.",
+      "Magic Links können alternativ kopiert und auf anderem Weg geteilt werden.",
+    ],
+    keywords: ["whatsapp", "wa.me", "öffnen", "firmennummer", "cloud", "magic link"],
   },
   {
     id: "magic-link",
@@ -161,20 +145,20 @@ export const HELP_ARTICLES: readonly HelpArticle[] = [
   },
   {
     id: "manager-oversight",
-    title: "Team steuern: KPIs, Engpässe, Freigaben",
+    title: "Team steuern: KPIs und Engpässe",
     summary:
-      "Tenant-weiter Überblick für Teamleitung — Reports, Pipeline und Postausgang.",
+      "Tenant-weiter Überblick für Teamleitung — Reports, Pipeline und Aufgabenlast.",
     category: "routine",
     roles: ["manager", "admin"],
     route: "/reports",
     steps: [
       "Berichte öffnen: Funnel und Engpässe prüfen.",
       "Pipeline nach Last und Alterung scannen.",
-      "Postausgang freigeben (ohne Self-Approval).",
+      "Offene Folgeaufgaben (z. B. nach Verfügbarkeit bestätigt) im Blick behalten.",
       "Bei Bedarf Leads oder Aufgaben neu zuweisen.",
     ],
-    outcome: "Führung hat Überblick; Freigaben bleiben Pflicht vor Cloud-Send.",
-    keywords: ["manager", "kpi", "reports", "team", "freigabe"],
+    outcome: "Führung hat Überblick; der Alltagsversand blockiert nicht auf Freigaben.",
+    keywords: ["manager", "kpi", "reports", "team"],
   },
   {
     id: "register-import",

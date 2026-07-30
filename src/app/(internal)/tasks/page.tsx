@@ -3,10 +3,12 @@ import { redirect } from "next/navigation";
 import { HelpLink } from "@/components/help/help-link";
 import { withTenant } from "@/db/client";
 import { getSession } from "@/modules/auth/session";
+import { resolveAdapterMode } from "@/modules/messaging/adapters";
 import { completeTask } from "@/modules/participants/actions-internal";
 import { issueLinkForTask, revokeTaskLink } from "@/modules/tasks/actions";
 import { listOpenTasks } from "@/modules/tasks/queries";
 import { deriveTaskLinkDisplayStatus } from "@/modules/tokens/link-status";
+import { TaskLinkBanner } from "./task-link-banner";
 import {
   TaskWhatsAppButton,
   type TaskWhatsAppLabels,
@@ -40,12 +42,49 @@ const DUE_DATE_FORMATTER = new Intl.DateTimeFormat("de-DE", {
   year: "numeric",
 });
 
+const WA_BANNER: Record<string, { readonly kind: "info" | "gate"; readonly text: string }> = {
+  sent: {
+    kind: "info",
+    text: "WhatsApp-Nachricht über die Firmennummer versendet.",
+  },
+  cloud_unavailable: {
+    kind: "gate",
+    text: "Firmen-WhatsApp (Cloud API) ist noch nicht konfiguriert. Bitte „WhatsApp öffnen“ nutzen — Versand über Ihr Gerät.",
+  },
+  failed: {
+    kind: "gate",
+    text: "WhatsApp-Versand fehlgeschlagen. Bitte später erneut versuchen.",
+  },
+  no_phone: {
+    kind: "gate",
+    text: "Keine Telefonnummer hinterlegt — WhatsApp nicht möglich.",
+  },
+  no_consent: {
+    kind: "gate",
+    text: "Kein WhatsApp-Opt-in vorhanden — Versand blockiert.",
+  },
+  must_claim: {
+    kind: "gate",
+    text: "Bitte übernehmen Sie den Lead vor dieser Aktion.",
+  },
+  forbidden: {
+    kind: "gate",
+    text: "Für diese Aufgabe fehlt Ihnen die Berechtigung.",
+  },
+  not_applicable: {
+    kind: "gate",
+    text: "Aufgabe eignet sich nicht für WhatsApp.",
+  },
+};
+
 export default async function TasksPage({
   searchParams,
 }: {
   searchParams: Promise<{
     link?: string;
+    taskId?: string;
     revoked?: string;
+    wa?: string;
     access?: "must_claim" | "forbidden";
   }>;
 }) {
@@ -53,6 +92,7 @@ export default async function TasksPage({
   if (!session) redirect("/auth/sign-in");
 
   const t = await getTranslations("tasks");
+  const whatsappMode = resolveAdapterMode("whatsapp");
   const waLabels: TaskWhatsAppLabels = {
     send: t("whatsapp.send"),
     opening: t("whatsapp.opening"),
@@ -66,7 +106,8 @@ export default async function TasksPage({
       failed: t("whatsapp.errors.failed"),
     },
   };
-  const { link, revoked, access } = await searchParams;
+  const { link, revoked, access, wa } = await searchParams;
+  const waBanner = wa ? WA_BANNER[wa] : undefined;
   const revokedMessage =
     revoked === undefined
       ? undefined
@@ -94,6 +135,16 @@ export default async function TasksPage({
         </p>
       ) : null}
 
+      {waBanner ? (
+        <p
+          className={waBanner.kind === "info" ? "info-banner" : "gate-banner"}
+          role={waBanner.kind === "gate" ? "alert" : "status"}
+          style={{ marginBottom: "var(--space-6)" }}
+        >
+          {waBanner.text}
+        </p>
+      ) : null}
+
       {access ? (
         <p
           className="gate-banner"
@@ -113,16 +164,7 @@ export default async function TasksPage({
         </p>
       ) : null}
 
-      {link ? (
-        <div className="card" style={{ marginBottom: "var(--space-6)" }}>
-          <p style={{ fontSize: "var(--text-sm)", fontWeight: 600, marginBottom: "var(--space-2)" }}>
-            Aufgaben-Link erstellt — per WhatsApp/E-Mail versenden:
-          </p>
-          <code data-testid="task-link" style={{ fontSize: "var(--text-xs)", wordBreak: "break-all", display: "block" }}>
-            {link}
-          </code>
-        </div>
-      ) : null}
+      {link ? <TaskLinkBanner link={link} /> : null}
 
       {openTasks.length === 0 ? (
         <div className="empty-state">{t("empty")}</div>
@@ -177,7 +219,11 @@ export default async function TasksPage({
                   <span />
                 )}
                 {canWhatsApp ? (
-                  <TaskWhatsAppButton taskId={task.id} labels={waLabels} />
+                  <TaskWhatsAppButton
+                    taskId={task.id}
+                    mode={whatsappMode}
+                    labels={waLabels}
+                  />
                 ) : (
                   <span />
                 )}
