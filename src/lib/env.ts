@@ -10,12 +10,14 @@ const envSchema = z.object({
   TOKEN_SECRET: z.string().min(16),
   APP_BASE_URL: z.string().url().default("http://localhost:3000"),
   // Durable object storage for uploads + generated/signed PDFs. Defaults to the
-  // local-disk driver so dev + single-VM deploys keep working with no cloud
-  // creds. Set STORAGE_DRIVER=s3 (+ the S3_* vars) for durable, multi-replica
-  // storage on S3 / Cloudflare R2 / MinIO. See src/modules/storage.
-  STORAGE_DRIVER: z.enum(["local", "s3"]).default("local"),
+  // local-disk driver so dev keeps working with no cloud creds. `db` keeps the
+  // bytes in Postgres (one durable store, one backup — the deployment default
+  // for this internal CRM); `s3` targets S3 / Cloudflare R2 / MinIO via the
+  // S3_* vars. Both are durable across replicas. See src/modules/storage.
+  STORAGE_DRIVER: z.enum(["local", "s3", "db"]).default("local"),
   // Escape hatch for a single always-on VM with a persistent volume mounted at
-  // the local storage root. Required in production when STORAGE_DRIVER=local.
+  // the local storage root. Required in production when STORAGE_DRIVER=local,
+  // and doubles as the switch that permits a localhost APP_BASE_URL.
   ALLOW_LOCAL_STORAGE_IN_PROD: z.enum(["true", "false"]).optional(),
   S3_BUCKET: z.string().optional(),
   S3_REGION: z.string().optional(),
@@ -89,11 +91,10 @@ const envSchema = z.object({
     });
   }
   if (!isProduction) return;
-  // Single-VM demos may set ALLOW_LOCAL_STORAGE_IN_PROD=true and keep a local
-  // APP_BASE_URL. Multi-replica / public prod must use HTTPS non-localhost.
-  const allowSingleVmLocal =
-    value.ALLOW_LOCAL_STORAGE_IN_PROD === "true" &&
-    value.STORAGE_DRIVER === "local";
+  // ALLOW_LOCAL_STORAGE_IN_PROD doubles as the "this is a single-VM demo" switch
+  // (compose sets it), so it also relaxes the URL check — independent of the
+  // storage driver. Multi-replica / public prod must use HTTPS non-localhost.
+  const allowSingleVmLocal = value.ALLOW_LOCAL_STORAGE_IN_PROD === "true";
   if (
     !allowSingleVmLocal &&
     (value.APP_BASE_URL.includes("localhost") ||
@@ -131,7 +132,7 @@ const envSchema = z.object({
       code: z.ZodIssueCode.custom,
       path: ["STORAGE_DRIVER"],
       message:
-        "Production requires STORAGE_DRIVER=s3 (or ALLOW_LOCAL_STORAGE_IN_PROD=true with a persistent volume)",
+        "Production requires STORAGE_DRIVER=db or s3 (or ALLOW_LOCAL_STORAGE_IN_PROD=true with a persistent volume)",
     });
   }
   if (value.TRUST_PROXY !== "true") {

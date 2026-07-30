@@ -1,17 +1,19 @@
 import path from "node:path";
 import { S3Client } from "@aws-sdk/client-s3";
 import { env } from "@/lib/env";
+import { DbStorageAdapter, type StorageDbHandle } from "./db-driver";
 import { LocalStorageAdapter } from "./local-driver";
 import { S3StorageAdapter } from "./s3-driver";
 import type { StorageAdapter } from "./types";
 
 export type { StorageAdapter, StorageKey, StoragePutParams } from "./types";
 export { buildStorageKey, normalizeStorageKey } from "./keys";
+export { DbStorageAdapter, MAX_OBJECT_BYTES } from "./db-driver";
 export { LocalStorageAdapter } from "./local-driver";
 export { S3StorageAdapter } from "./s3-driver";
 
 export type StorageConfig = {
-  readonly driver: "local" | "s3";
+  readonly driver: "local" | "s3" | "db";
   /** Root directory for the local driver. */
   readonly localRoot: string;
   readonly s3?: {
@@ -28,17 +30,22 @@ export type StorageConfig = {
 export type CreateStorageDeps = {
   /** Injected S3 client (tests). Falls back to one built from the config. */
   readonly s3Client?: S3Client;
+  /** Injected Drizzle handle (tests). Falls back to the app connection. */
+  readonly dbHandle?: StorageDbHandle;
 };
 
 /**
- * Pure driver-selection logic. Returns the S3 driver when configured, otherwise
- * the local driver. Kept side-effect-light (only constructs an S3Client when
- * the s3 driver is selected and none is injected) so it is unit-testable.
+ * Pure driver-selection logic. Kept side-effect-light (only constructs an
+ * S3Client when the s3 driver is selected and none is injected) so it is
+ * unit-testable.
  */
 export function createStorageFromConfig(
   config: StorageConfig,
   deps: CreateStorageDeps = {},
 ): StorageAdapter {
+  if (config.driver === "db") {
+    return new DbStorageAdapter(deps.dbHandle);
+  }
   if (config.driver === "s3") {
     const s3 = config.s3;
     if (!s3?.bucket) {

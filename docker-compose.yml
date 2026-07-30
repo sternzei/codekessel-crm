@@ -45,9 +45,11 @@ services:
       AUTH_SECRET: ${AUTH_SECRET:-local-compose-auth-secret-32chars-min}
       TOKEN_SECRET: ${TOKEN_SECRET:-local-compose-token-secret-32chars-min}
       APP_BASE_URL: ${APP_BASE_URL:-http://localhost:3000}
-      # Single-VM compose: local disk + named volume. For multi-replica prod set
-      # STORAGE_DRIVER=s3 and inject S3_* (see docs/PRODUCTION-READINESS.md).
-      STORAGE_DRIVER: ${STORAGE_DRIVER:-local}
+      # Documents live in Postgres, so the app tier holds no state and the
+      # database backup is the whole backup. Set STORAGE_DRIVER=s3 + S3_* when
+      # the document volume outgrows a dump (see docs/PRODUCTION-READINESS.md).
+      STORAGE_DRIVER: ${STORAGE_DRIVER:-db}
+      # Marks this as the single-VM deployment: permits the localhost APP_BASE_URL.
       ALLOW_LOCAL_STORAGE_IN_PROD: ${ALLOW_LOCAL_STORAGE_IN_PROD:-true}
       TRUST_PROXY: ${TRUST_PROXY:-true}
       RESEND_API_KEY: ${RESEND_API_KEY:-}
@@ -105,7 +107,7 @@ services:
       AUTH_SECRET: ${AUTH_SECRET:-local-compose-auth-secret-32chars-min}
       TOKEN_SECRET: ${TOKEN_SECRET:-local-compose-token-secret-32chars-min}
       APP_BASE_URL: ${APP_BASE_URL:-http://localhost:3000}
-      STORAGE_DRIVER: ${STORAGE_DRIVER:-local}
+      STORAGE_DRIVER: ${STORAGE_DRIVER:-db}
       ALLOW_LOCAL_STORAGE_IN_PROD: ${ALLOW_LOCAL_STORAGE_IN_PROD:-true}
       TRUST_PROXY: ${TRUST_PROXY:-true}
       RESEND_API_KEY: ${RESEND_API_KEY:-}
@@ -129,6 +131,9 @@ services:
       LEGAL_SUPERVISORY_AUTHORITY: ${LEGAL_SUPERVISORY_AUTHORITY:-}
       LEGAL_PRIVACY_CONTACT: ${LEGAL_PRIVACY_CONTACT:-}
     volumes:
+      # Nothing is written here under STORAGE_DRIVER=db; kept mounted so an
+      # upgraded deployment can still run scripts/migrate-storage-to-db.ts over
+      # the files an earlier local-driver install left behind.
       - qcg-uploads:/app/var
     command: node dist/worker.mjs --loop
 

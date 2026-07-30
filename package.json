@@ -14,6 +14,7 @@
     "jobs:dev": "node --import tsx --env-file=.env.local src/jobs/worker.ts --loop",
     "jobs:once": "node --import tsx --env-file=.env.local src/jobs/worker.ts --once",
     "email:test": "node --import tsx --env-file=.env.local scripts/send-test-email.ts",
+    "storage:migrate": "node --import tsx --env-file=.env.local scripts/migrate-storage-to-db.ts",
     "test:unit": "node --env-file=.env.local --import tsx --test tests/unit/*.test.ts",
     "test:coverage": "node --env-file=.env.local --import tsx --test --experimental-test-coverage --test-coverage-exclude=tests/** --test-coverage-lines=80 --test-coverage-branches=80 --test-coverage-functions=80 tests/unit/*.test.ts",
     "test:e2e": "playwright test",

@@ -9,7 +9,7 @@
 - Interim UX: tasks use **WhatsApp öffnen** (wa.me). Cloud sends are refused when
   adapters are mock — no fake “versendet”.
 - Production env fail-fast added in `src/lib/env.ts` (`APP_BASE_URL` HTTPS,
-  secret strength, `TRUST_PROXY`, `STORAGE_DRIVER=s3` or
+  secret strength, `TRUST_PROXY`, `STORAGE_DRIVER=db`/`s3` or
   `ALLOW_LOCAL_STORAGE_IN_PROD=true`).
 - Remaining non-WhatsApp P1s: Redis rate limits, Resend timeouts, structured
   logs/Sentry, branded `error.tsx`, CI Playwright — track separately.
@@ -210,11 +210,13 @@ over the frozen P0 table when they conflict.
 
 Status of the three P0 blockers (all addressed in this change set):
 
-- **P0-1 (durable storage) — done.** Uploads + generated/signed PDFs now go
-  through `src/modules/storage` (`StorageAdapter`: `put`/`get`/`delete`). Driver
-  is selected by `STORAGE_DRIVER` (`local` default, `s3` for AWS S3 / Cloudflare
-  R2 / MinIO). Stored values are opaque storage keys (legacy `var/…` paths still
-  resolve). The `fs` build-trace warning (P2-4) is gone.
+- **P0-1 (durable storage) — done.** Uploads + generated/signed PDFs go through
+  `src/modules/storage` (`StorageAdapter`: `put`/`get`/`delete`), selected by
+  `STORAGE_DRIVER`: `db` (Postgres `storage_objects`, **the deployment default**
+  — see below), `s3` (AWS S3 / Cloudflare R2 / MinIO), `local` (dev only).
+  Stored values are opaque storage keys (legacy `var/…` paths still resolve), so
+  changing drivers copies bytes and touches no application row. The `fs`
+  build-trace warning (P2-4) is gone.
 - **P0-2 (cross-tenant write) — done.** `applyInboundReceipt` resolves the
   owning tenant from the most recent outbound `message_deliveries` row for the
   number, then scopes the window reopen to that exact `(tenant, participant)`.
@@ -304,6 +306,44 @@ Deliberately open (design work, tracked separately):
   their card, `/tasks` badge/button alignment, lead-detail contact block is
   demoted below the title, BA availability form repeats "von/bis" 7×.
 
+### Document storage (`STORAGE_DRIVER=db`)
+
+Participant uploads and generated/signed PDFs live in the `storage_objects`
+table (migration `0019`), which is what compose and the Procfile deployment run.
+For an internal CRM this buys one durable store, one backup, no bucket
+credentials, and a stateless app tier. Two consequences to hold onto:
+
+- **Backups carry the documents.** A `pg_dump` now grows with document volume.
+  Uploads are capped at 10 MB × 5 files per submission plus the generated and
+  signed PDFs, so budget a few MB per participant and roughly 50 MB worst case.
+  Keep two artifacts: `pg_dump -Fc --exclude-table-data=storage_objects` on a
+  fast cadence (records only, quick to restore) and a full `pg_dump -Fc` on a
+  slower one. Restore time, not disk, is what you feel during an incident.
+- **The table has no RLS**, deliberately, and it is the only one. Rows are
+  addressed by an unguessable key the caller already had to read from a
+  tenant-scoped `documents` / `signatures` row, which is exactly the trust model
+  the filesystem driver had. Scoping it per tenant later is additive: a
+  `tenant_id` column, a policy, and one more field on `put()`.
+
+Switch to `s3` when the document volume outgrows what you want inside a dump —
+it is a driver swap plus a byte copy, not a data migration, because stored keys
+are driver-agnostic.
+
+Coming from an older `local` install:
+
+```
+pnpm storage:migrate            # copies var/** into storage_objects, then verifies
+pnpm storage:migrate --verify   # verification only (writes nothing)
+```
+
+The verify step lists any `file_path` / `signed_file_path` /
+`signature_image_path` that resolves to no object and exits non-zero. Keep
+`var/` until it comes back clean.
+
+`GET /api/ready`'s storage probe still writes and deletes a probe object, which
+under this driver proves the table and its grants — but it is no longer an
+independent failure domain from the database check.
+
 ### Required production environment
 
 Validated centrally in `src/lib/env.ts`; see `.env.example` for the full list.
@@ -314,7 +354,7 @@ Validated centrally in `src/lib/env.ts`; see `.env.example` for the full list.
 | `MIGRATION_DATABASE_URL` | yes (migrate + worker) | Owner role; bypasses RLS by design. |
 | `AUTH_SECRET`, `TOKEN_SECRET` | yes | Must differ; ≥32 chars in prod (use `openssl rand -base64 32`). |
 | `APP_BASE_URL` | yes in prod | Public HTTPS origin; magic links are minted from it. |
-| `STORAGE_DRIVER` | yes | `local` or `s3`. **Use `s3` in multi-instance prod.** |
+| `STORAGE_DRIVER` | yes | `db` (default deployment), `s3`, or `local`. **`local` is dev-only.** |
 | `S3_BUCKET` | if `s3` | Enforced at startup when `STORAGE_DRIVER=s3`. |
 | `S3_REGION`/`S3_ENDPOINT`/`S3_ACCESS_KEY_ID`/`S3_SECRET_ACCESS_KEY`/`S3_FORCE_PATH_STYLE`/`S3_KEY_PREFIX` | if `s3` | `S3_ENDPOINT` for R2/MinIO; `S3_FORCE_PATH_STYLE=true` for MinIO. |
 | `ALLOW_LOCAL_STORAGE_IN_PROD` | if local in prod | `true` only with a persistent volume (compose: `qcg-uploads`). Also relaxes localhost `APP_BASE_URL` for single-VM demos. |
@@ -341,9 +381,9 @@ override its dev password (`ALTER ROLE qcg_app PASSWORD …` / secret manager).
 | `APP_BASE_URL` | yes | Public **HTTPS** origin (magic links). Localhost/`http://` only allowed with single-VM escape hatch below. |
 | `AUTH_SECRET` / `TOKEN_SECRET` | yes | ≥32 chars, must differ, no placeholders (`openssl rand -base64 32`). |
 | `TRUST_PROXY` | yes | `true` behind nginx/Cloudflare/load balancer. |
-| `STORAGE_DRIVER` | yes | Prefer `s3` in multi-replica prod. |
+| `STORAGE_DRIVER` | yes | `db` unless the document volume warrants `s3`. |
 | `S3_BUCKET` (+ region/keys) | if `s3` | Enforced at startup. |
-| `ALLOW_LOCAL_STORAGE_IN_PROD` | if local disk | `true` only on a **single always-on VM** with a persistent volume for uploads/PDFs. |
+| `ALLOW_LOCAL_STORAGE_IN_PROD` | if local disk | `true` only on a **single always-on VM** with a persistent volume for uploads/PDFs. Also marks a single-VM deploy, which permits a localhost `APP_BASE_URL`. |
 | `RESEND_API_KEY` / `RESEND_FROM_EMAIL` | optional | Email goes live when both set; otherwise mock. |
 | WhatsApp Cloud vars | parked | Interim UI uses wa.me until Meta credentials land. |
 
@@ -358,11 +398,13 @@ curl -fsS localhost:3000/api/health           # -> {"status":"ok"}
 
 - `web` runs migrations then `node server.js`; `worker` runs the pre-bundled
   `node dist/worker.mjs --loop`; both `restart: unless-stopped`.
-- Compose app profile mounts named volume `qcg-uploads` → `/app/var` and sets
-  `ALLOW_LOCAL_STORAGE_IN_PROD=true` so PDFs survive container restarts.
+- Documents go to Postgres (`STORAGE_DRIVER=db`), so the app tier holds no state
+  and the database backup is the whole backup. The `qcg-uploads` volume stays
+  mounted only so an upgraded install can run `pnpm storage:migrate` over files
+  an earlier local-driver deployment left behind.
 - `web` has a Docker healthcheck on `/api/health`; `worker` waits until web is healthy.
-- For multi-replica prod: set `STORAGE_DRIVER=s3` and inject `S3_*` into web/worker
-  (do **not** rely on the local volume).
+- To move documents out of the database later: set `STORAGE_DRIVER=s3` and inject
+  `S3_*` into web/worker, then copy the bytes across (keys do not change).
 - `docker compose up -d` (no profile) still starts only `db` (keeps
   `pnpm db:reset` fast and unblocks local dev).
 

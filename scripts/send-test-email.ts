@@ -42,4 +42,8 @@ async function main(): Promise<void> {
   console.log(`Sent to ${recipientEmail} from ${process.env.RESEND_FROM_EMAIL}`);
 }
 
-await main();
+// Not top-level await: tsx transpiles a plain .ts script to CJS, which rejects it.
+main().catch((error: unknown) => {
+  console.error(error);
+  process.exitCode = 1;
+});

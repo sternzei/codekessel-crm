@@ -9,13 +9,18 @@ import {
   PutObjectCommand,
   type S3Client,
 } from "@aws-sdk/client-s3";
+import type { SQL } from "drizzle-orm";
+import { PgDialect } from "drizzle-orm/pg-core";
 import {
+  DbStorageAdapter,
   LocalStorageAdapter,
+  MAX_OBJECT_BYTES,
   S3StorageAdapter,
   buildStorageKey,
   createStorageFromConfig,
   normalizeStorageKey,
 } from "@/modules/storage";
+import type { StorageDbHandle } from "@/modules/storage/db-driver";
 
 async function makeTempRoot(): Promise<string> {
   return mkdtemp(path.join(tmpdir(), "qcg-storage-"));
@@ -99,6 +104,94 @@ test("createStorageFromConfig throws when s3 is selected without a bucket", () =
     () => createStorageFromConfig({ driver: "s3", localRoot: "/tmp/x", s3: {} }),
     /S3_BUCKET is required/,
   );
+});
+
+test("createStorageFromConfig returns the db driver when selected", () => {
+  const { handle } = makeFakeDb();
+  const adapter = createStorageFromConfig(
+    { driver: "db", localRoot: "/tmp/x" },
+    { dbHandle: handle },
+  );
+  assert.ok(adapter instanceof DbStorageAdapter);
+});
+
+// --- db driver (fake handle, no connection) ---------------------------------
+
+const dialect = new PgDialect();
+
+/** Records every statement with its bound parameters and returns canned rows. */
+function makeFakeDb(rows: readonly Record<string, unknown>[] = []) {
+  const statements: { sql: string; params: readonly unknown[] }[] = [];
+  const handle: StorageDbHandle = {
+    execute: async (query: SQL) => {
+      const compiled = dialect.sqlToQuery(query);
+      statements.push({ sql: compiled.sql, params: compiled.params });
+      return rows;
+    },
+  };
+  return { handle, statements };
+}
+
+test("DbStorageAdapter.put upserts the normalized key with its size and bytes", async () => {
+  const { handle, statements } = makeFakeDb();
+  const adapter = new DbStorageAdapter(handle);
+  const inputBytes = Buffer.from("hello pdf");
+  const returnedKey = await adapter.put({
+    key: "var/documents/a.pdf",
+    bytes: inputBytes,
+    contentType: "application/pdf",
+  });
+  assert.equal(returnedKey, "documents/a.pdf");
+  const [statement] = statements;
+  assert.match(statement.sql, /insert into storage_objects/);
+  // A retried write of the same key must succeed, like the other drivers.
+  assert.match(statement.sql, /on conflict \(key\) do update/);
+  assert.deepEqual(statement.params, [
+    "documents/a.pdf",
+    "application/pdf",
+    inputBytes.byteLength,
+    inputBytes,
+  ]);
+});
+
+test("DbStorageAdapter.put rejects an object over the size ceiling", async () => {
+  const { handle, statements } = makeFakeDb();
+  const adapter = new DbStorageAdapter(handle);
+  await assert.rejects(
+    () =>
+      adapter.put({
+        key: "documents/huge.pdf",
+        bytes: Buffer.alloc(MAX_OBJECT_BYTES + 1),
+      }),
+    /exceeds 33554432 bytes/,
+  );
+  assert.equal(statements.length, 0);
+});
+
+test("DbStorageAdapter.get returns the stored bytes for a legacy var/ key", async () => {
+  const expectedBytes = Buffer.from([1, 2, 3]);
+  const { handle, statements } = makeFakeDb([{ bytes: expectedBytes }]);
+  const adapter = new DbStorageAdapter(handle);
+  const actualBytes = await adapter.get("var/documents/a.pdf");
+  assert.deepEqual(actualBytes, expectedBytes);
+  assert.deepEqual(statements[0]?.params, ["documents/a.pdf"]);
+});
+
+test("DbStorageAdapter.get rejects when no object matches the key", async () => {
+  const { handle } = makeFakeDb([]);
+  const adapter = new DbStorageAdapter(handle);
+  await assert.rejects(
+    () => adapter.get("documents/missing.pdf"),
+    /storage object not found/,
+  );
+});
+
+test("DbStorageAdapter.delete removes the row and tolerates a missing key", async () => {
+  const { handle, statements } = makeFakeDb([]);
+  const adapter = new DbStorageAdapter(handle);
+  await assert.doesNotReject(() => adapter.delete("documents/gone.pdf"));
+  assert.match(statements[0]?.sql ?? "", /delete from storage_objects/);
+  assert.deepEqual(statements[0]?.params, ["documents/gone.pdf"]);
 });
 
 // --- s3 driver (mocked client, no network) ----------------------------------

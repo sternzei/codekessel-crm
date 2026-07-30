@@ -134,6 +134,13 @@
       "when": 1785400002000,
       "tag": "0018_message_template_catalog",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1785400003000,
+      "tag": "0019_storage_objects",
+      "breakpoints": true
     }
   ]
 }
