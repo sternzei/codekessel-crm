@@ -2,9 +2,12 @@ import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import type { DbHandle } from "@/db/client";
 import { reminderJobs, routingRules, tasks } from "@/db/schema";
+import { logger } from "@/lib/logger";
 import { logActivity } from "@/modules/audit/log";
+import { buildTaskTemplateKey, hasLandingPage } from "@/modules/messaging/catalog";
 import { enqueueAndDispatchOnHandle } from "@/modules/messaging/outbox";
 import { resolveRecipient } from "@/modules/messaging/send";
+import { isTemplateRenderError } from "@/modules/messaging/templates";
 import { ACTIVE_TASK_STATUSES, isActiveTaskStatus } from "@/modules/tasks/status";
 import { issueMagicLink } from "@/modules/tokens/service";
 
@@ -208,13 +211,17 @@ async function dispatchExternal(
       : owner.ownerEmployerId;
   if (!subjectId) return;
 
-  const link = await issueMagicLink(tx, {
-    tenantId: event.tenantId,
-    taskId,
-    subjectKind: rule.ownerKind,
-    subjectId,
-    scope: rule.taskType,
-  });
+  // Only task types with a /t/[token] page get a link; for the others a link
+  // would lead nowhere and their templates don't reference {{link}}.
+  const link = hasLandingPage(rule.taskType)
+    ? await issueMagicLink(tx, {
+        tenantId: event.tenantId,
+        taskId,
+        subjectKind: rule.ownerKind,
+        subjectId,
+        scope: rule.taskType,
+      })
+    : null;
 
   const recipient = await resolveRecipient(tx, rule.ownerKind, subjectId);
   if (!recipient) return;
@@ -225,21 +232,41 @@ async function dispatchExternal(
       ? ("email" as const)
       : ("whatsapp" as const);
 
-  await enqueueAndDispatchOnHandle(tx, {
-    tenantId: event.tenantId,
-    taskId,
-    channel,
-    templateKey: `task_${rule.taskType}`,
-    recipient,
-    source: "routing",
-    actorUserId: event.actorUserId ?? null,
-    variables: {
-      firstName: recipient.displayName ?? "",
-      title: rule.titleTemplate,
-      link: link.url,
-      ...event.context.variables,
-    },
-  });
+  try {
+    await enqueueAndDispatchOnHandle(tx, {
+      tenantId: event.tenantId,
+      taskId,
+      channel,
+      templateKey: buildTaskTemplateKey(rule.taskType),
+      recipient,
+      source: "routing",
+      actorUserId: event.actorUserId ?? null,
+      variables: {
+        firstName: recipient.displayName ?? "",
+        title: rule.titleTemplate,
+        ...(link ? { link: link.url } : {}),
+        ...event.context.variables,
+      },
+    });
+  } catch (error: unknown) {
+    // Refusing to send beats sending improvised copy, but it must not roll back
+    // the transition that created the task: the task itself is still the work
+    // item a consultant can act on. Record it so the gap is visible.
+    if (!isTemplateRenderError(error)) throw error;
+    logger.error("routing dispatch blocked by template", {
+      taskId,
+      templateKey: error.templateKey,
+      channel: error.channel,
+    });
+    await logActivity(tx, {
+      tenantId: event.tenantId,
+      actorKind: "system",
+      subjectKind: "task",
+      subjectId: taskId,
+      event: "message_template_missing",
+      meta: { templateKey: error.templateKey, channel: error.channel },
+    });
+  }
 }
 
 async function scheduleReminders(

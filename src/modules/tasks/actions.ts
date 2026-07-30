@@ -6,6 +6,7 @@ import { z } from "zod";
 import { withTenant } from "@/db/client";
 import { consentRecords, employers, tasks } from "@/db/schema";
 import { logActivity } from "@/modules/audit/log";
+import { logger } from "@/lib/logger";
 import { canManageTenantRecords } from "@/modules/auth/authorization";
 import { resolveTaskWriteAccess } from "@/modules/auth/task-scope";
 import { getSession } from "@/modules/auth/session";
@@ -13,7 +14,8 @@ import { resolveAdapterMode } from "@/modules/messaging/adapters";
 import { buildWaMeUrl, toWaMeNumber } from "@/modules/messaging/click-to-chat";
 import { enqueueAndDispatchManual } from "@/modules/messaging/outbox";
 import { resolveRecipient } from "@/modules/messaging/send";
-import { renderTemplate } from "@/modules/messaging/templates";
+import { buildTaskTemplateKey, hasLandingPage } from "@/modules/messaging/catalog";
+import { isTemplateRenderError, renderTemplate } from "@/modules/messaging/templates";
 import { normalizePhone } from "@/modules/participants/phone";
 import {
   getOrIssueMagicLinkForTask,
@@ -116,6 +118,7 @@ type WhatsAppSendOutcome =
   | "must_claim"
   | "forbidden"
   | "not_applicable"
+  | "no_template"
   | "failed";
 
 /**
@@ -199,20 +202,20 @@ export async function sendTaskWhatsApp(formData: FormData): Promise<void> {
         return { outcome: "no_consent" as const };
       }
 
-      // F3: magic-link tasks must carry a working /t/{jwt} link. Only the hash
-      // is stored, so we mint a fresh one (superseding any live token). Non
-      // magic-link tasks get no link — their templates don't reference {{link}}.
-      const link =
-        task.channel === "magic_link"
-          ? await getOrIssueMagicLinkForTask(tx, task)
-          : null;
+      // F3: tasks whose type has a /t/[token] page must carry a working link.
+      // Only the hash is stored, so we mint a fresh one (superseding any live
+      // token). Task types without a landing page get none — their templates
+      // don't reference {{link}}.
+      const link = hasLandingPage(task.type)
+        ? await getOrIssueMagicLinkForTask(tx, task)
+        : null;
 
       return {
         outcome: "ready" as const,
         taskId: task.id,
         ownerKind,
         recipient,
-        templateKey: `task_${task.type}`,
+        templateKey: buildTaskTemplateKey(task.type),
         variables: {
           firstName: recipient.displayName ?? "",
           title: task.title,
@@ -226,15 +229,28 @@ export async function sendTaskWhatsApp(formData: FormData): Promise<void> {
     redirect(`/tasks?wa=${prepared.outcome}`);
   }
 
-  const dispatchOutcome = await enqueueAndDispatchManual({
-    tenantId: session.tenantId,
-    taskId: prepared.taskId,
-    channel: "whatsapp",
-    templateKey: prepared.templateKey,
-    recipient: prepared.recipient,
-    actorUserId: session.id,
-    variables: prepared.variables,
-  });
+  let dispatchOutcome: "dispatched" | "failed";
+  try {
+    dispatchOutcome = await enqueueAndDispatchManual({
+      tenantId: session.tenantId,
+      taskId: prepared.taskId,
+      channel: "whatsapp",
+      templateKey: prepared.templateKey,
+      recipient: prepared.recipient,
+      actorUserId: session.id,
+      variables: prepared.variables,
+    });
+  } catch (error: unknown) {
+    // A missing or broken template is a configuration fault, not a transport
+    // failure: tell the consultant instead of sending improvised copy.
+    if (!isTemplateRenderError(error)) throw error;
+    logger.error("manual whatsapp send blocked by template", {
+      taskId: prepared.taskId,
+      templateKey: error.templateKey,
+      channel: error.channel,
+    });
+    redirect("/tasks?wa=no_template");
+  }
 
   await withTenant(session.tenantId, async (tx) => {
     await logActivity(tx, {
@@ -270,6 +286,7 @@ type WhatsAppClickToChatResult =
         | "not_applicable"
         | "must_claim"
         | "forbidden"
+        | "no_template"
         | "failed";
     };
 
@@ -319,18 +336,33 @@ export async function buildWhatsAppClickToChat(
     const phone = toWaMeNumber(recipient.phone ?? "");
     if (!phone) return { ok: false, reason: "no_phone" };
 
-    // magic-link tasks carry a freshly minted /t/{jwt}; other task types have
-    // no {{link}} placeholder in their template.
-    const link =
-      task.channel === "magic_link"
-        ? await getOrIssueMagicLinkForTask(tx, task)
-        : null;
+    // Task types with a /t/[token] page carry a freshly minted link; the others
+    // have no {{link}} placeholder in their template.
+    const link = hasLandingPage(task.type)
+      ? await getOrIssueMagicLinkForTask(tx, task)
+      : null;
 
-    const rendered = await renderTemplate(tx, `task_${task.type}`, "whatsapp", {
-      firstName: recipient.displayName ?? "",
-      title: task.title,
-      ...(link ? { link } : {}),
-    });
+    let rendered;
+    try {
+      rendered = await renderTemplate(
+        tx,
+        buildTaskTemplateKey(task.type),
+        "whatsapp",
+        {
+          firstName: recipient.displayName ?? "",
+          title: task.title,
+          ...(link ? { link } : {}),
+        },
+      );
+    } catch (error: unknown) {
+      if (!isTemplateRenderError(error)) throw error;
+      logger.error("click-to-chat blocked by template", {
+        taskId: task.id,
+        templateKey: error.templateKey,
+        channel: error.channel,
+      });
+      return { ok: false, reason: "no_template" };
+    }
 
     const url = buildWaMeUrl({ phone, text: rendered.body });
 

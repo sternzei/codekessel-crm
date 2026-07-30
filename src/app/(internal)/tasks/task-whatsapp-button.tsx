@@ -17,6 +17,7 @@ export type TaskWhatsAppLabels = {
     not_applicable: string;
     must_claim: string;
     forbidden: string;
+    no_template: string;
     failed: string;
   };
 };

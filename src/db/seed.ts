@@ -32,6 +32,7 @@ import {
   users,
 } from "./schema";
 import { issueMagicLink } from "@/modules/tokens/service";
+import { buildTemplateRows } from "@/modules/messaging/catalog";
 
 const url = process.env.MIGRATION_DATABASE_URL;
 if (!url) throw new Error("MIGRATION_DATABASE_URL is not set");
@@ -657,34 +658,12 @@ async function main() {
     },
   ]);
 
-  // --- Message templates (placeholder German copy; final texts from client)
-  await db.insert(messageTemplates).values([
-    {
-      tenantId,
-      key: "wrong_number_email",
-      channel: "email" as const,
-      subject: "Ihre Kontaktdaten für die geförderte Weiterbildung",
-      body: "Hallo {{firstName}}, wir konnten Sie telefonisch nicht erreichen. Bitte aktualisieren Sie Ihre Kontaktdaten über diesen Link: {{link}} (PLATZHALTER — finaler Text folgt)",
-    },
-    {
-      tenantId,
-      key: "appointment_reminder_24h",
-      channel: "whatsapp" as const,
-      body: "Hallo {{firstName}}, morgen um {{time}} findet Ihr Beratungstermin statt. Bei Verhinderung können Sie hier umbuchen: {{link}} (PLATZHALTER)",
-    },
-    {
-      tenantId,
-      key: "test_reminder_24h",
-      channel: "whatsapp" as const,
-      body: "Hallo {{firstName}}, Ihr Eignungstest wartet auf Sie (ca. 30 Minuten): {{link}} (PLATZHALTER)",
-    },
-    {
-      tenantId,
-      key: "availability_check",
-      channel: "whatsapp" as const,
-      body: "Hallo {{firstName}}, bitte bestätigen Sie kurz Ihre Verfügbarkeit für die Weiterbildung (dauert 2 Minuten): {{link}} (PLATZHALTER)",
-    },
-  ]);
+  // --- Message templates ----------------------------------------------------
+  // Written from the catalog so every key the app can request has an active row
+  // per channel. Rendering throws on a miss, so this is not optional demo data.
+  await db
+    .insert(messageTemplates)
+    .values(buildTemplateRows().map((row) => ({ ...row, tenantId })));
 
   // --- Demo appointments + contact notes -----------------------------------
   const marta = participantRows[2];

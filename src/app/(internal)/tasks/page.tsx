@@ -75,6 +75,10 @@ const WA_BANNER: Record<string, { readonly kind: "info" | "gate"; readonly text:
     kind: "gate",
     text: "Aufgabe eignet sich nicht für WhatsApp.",
   },
+  no_template: {
+    kind: "gate",
+    text: "Für diesen Aufgabentyp ist keine Nachrichtenvorlage hinterlegt — es wurde nichts versendet.",
+  },
 };
 
 export default async function TasksPage({
@@ -103,6 +107,7 @@ export default async function TasksPage({
       not_applicable: t("whatsapp.errors.not_applicable"),
       must_claim: "Bitte übernehmen Sie den Lead vor dieser Aktion.",
       forbidden: "Für diese Aufgabe fehlt Ihnen die Berechtigung.",
+      no_template: WA_BANNER.no_template.text,
       failed: t("whatsapp.errors.failed"),
     },
   };

@@ -119,6 +119,16 @@ const makeTenantRunner =
   ): Promise<T> =>
     operation(db);
 
+// renderTemplate's lookup is the first select of every enqueue path and no
+// longer falls back, so each of those tests has to hand it a row.
+const templateRow: Row = {
+  key: "task_confirm_availability",
+  channel: "whatsapp",
+  subject: null,
+  body: "Hallo {{firstName}}, bitte bestätigen Sie: {{title}}",
+  active: true,
+};
+
 const enqueueParams = {
   tenantId: "tenant-1",
   taskId: "task-1",
@@ -155,8 +165,8 @@ test("stale sending detection uses the configured age threshold", () => {
 });
 
 test("enqueueTaskMessage writes a pending row and never dispatches", async () => {
-  // First select = renderTemplate lookup (no template → neutral fallback body).
-  const fake = makeFakeDb({ selectResults: [[]] });
+  // First select = renderTemplate's lookup.
+  const fake = makeFakeDb({ selectResults: [[templateRow]] });
   const ok = await enqueueTaskMessage(fake.db, enqueueParams);
   assert.equal(ok, true);
   const outboxInsert = fake.inserts.find((i) => i.table === outboundMessages);
@@ -168,9 +178,18 @@ test("enqueueTaskMessage writes a pending row and never dispatches", async () =>
   assert.equal(audit?.values.event, "message_queued");
 });
 
+test("enqueueTaskMessage refuses to queue anything without a template", async () => {
+  const fake = makeFakeDb({ selectResults: [[]] });
+  await assert.rejects(
+    () => enqueueTaskMessage(fake.db, enqueueParams),
+    /No active whatsapp template/,
+  );
+  assert.equal(fake.inserts.length, 0);
+});
+
 test("enqueueAndDispatchOnHandle sends immediately without Postausgang wait", async () => {
   const fake = makeFakeDb({
-    selectResults: [[]],
+    selectResults: [[templateRow]],
     insertReturning: [
       {
         id: "om-manual-1",
@@ -210,7 +229,7 @@ test("enqueueAndDispatchOnHandle sends immediately without Postausgang wait", as
 
 test("enqueueAndDispatchManual wraps on-handle dispatch in a tenant runner", async () => {
   const fake = makeFakeDb({
-    selectResults: [[]],
+    selectResults: [[templateRow]],
     insertReturning: [
       {
         id: "om-manual-2",

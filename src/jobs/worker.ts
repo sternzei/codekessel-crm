@@ -13,6 +13,10 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import * as schema from "@/db/schema";
 import { logger } from "@/lib/logger";
+import {
+  GENERIC_REMINDER_TEMPLATE_KEY,
+  hasLandingPage,
+} from "@/modules/messaging/catalog";
 import { enqueueAndDispatchOnHandle } from "@/modules/messaging/outbox";
 import { resolveRecipient } from "@/modules/messaging/send";
 import { ACTIVE_TASK_STATUSES, isActiveTaskStatus } from "@/modules/tasks/status";
@@ -198,13 +202,12 @@ async function sendExternalReminder(
   const recipient = await resolveRecipient(db, task.ownerKind, ownerId);
   if (!recipient) return "no_recipient";
 
-  // F4: reminders for magic-link tasks must include a valid link. The JWT can't
-  // be rebuilt from the stored hash, so we mint a fresh one (superseding any
-  // live token). Tasks without external link semantics get no {{link}}.
-  const link =
-    task.channel === "magic_link"
-      ? await getOrIssueMagicLinkForTask(db, task)
-      : null;
+  // F4: reminders for tasks with a /t/[token] page must include a valid link.
+  // The JWT can't be rebuilt from the stored hash, so we mint a fresh one
+  // (superseding any live token). Task types without a landing page get none.
+  const link = hasLandingPage(task.type)
+    ? await getOrIssueMagicLinkForTask(db, task)
+    : null;
 
   // Reminder fire-at IS the send trigger — dispatch immediately via the
   // business Cloud API / email adapter (no Postausgang hop).
@@ -212,7 +215,7 @@ async function sendExternalReminder(
     tenantId: task.tenantId,
     taskId: task.id,
     channel,
-    templateKey: templateKey ?? `reminder_${task.type}`,
+    templateKey: templateKey ?? GENERIC_REMINDER_TEMPLATE_KEY,
     recipient,
     source: "reminder",
     variables: {
