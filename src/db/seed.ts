@@ -20,7 +20,9 @@ import {
   importRuns,
   magicLinkTokens,
   measures,
+  messageDeliveries,
   messageTemplates,
+  outboundMessages,
   participants,
   reminderJobs,
   routingRules,
@@ -47,6 +49,8 @@ async function main() {
   await db.delete(contactNotes);
   await db.delete(reminderJobs);
   await db.delete(magicLinkTokens);
+  await db.delete(messageDeliveries);
+  await db.delete(outboundMessages);
   await db.delete(signatures);
   await db.delete(documents);
   await db.delete(applications);
@@ -435,6 +439,17 @@ async function main() {
       channel: "magic_link" as const,
       dueHours: 72,
       escalationHours: 120,
+    },
+    {
+      tenantId,
+      name: "Verfügbarkeit bestätigt → nächste Schritte planen",
+      triggerEntity: "participant" as const,
+      triggerStatus: "availability_yes",
+      taskType: "schedule_next_step",
+      titleTemplate: "Nächste Schritte planen (Verfügbarkeit bestätigt)",
+      ownerKind: "internal_user" as const,
+      channel: "internal" as const,
+      dueHours: 48,
     },
     {
       tenantId,

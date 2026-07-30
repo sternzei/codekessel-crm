@@ -1,5 +1,8 @@
 import { z } from "zod";
 
+const isProduction = process.env.NODE_ENV === "production";
+const PLACEHOLDER_SECRET = /dev-only|change-me|placeholder|example|secret123/i;
+
 const envSchema = z.object({
   DATABASE_URL: z.string().url(),
   MIGRATION_DATABASE_URL: z.string().url().optional(),
@@ -11,6 +14,9 @@ const envSchema = z.object({
   // creds. Set STORAGE_DRIVER=s3 (+ the S3_* vars) for durable, multi-replica
   // storage on S3 / Cloudflare R2 / MinIO. See src/modules/storage.
   STORAGE_DRIVER: z.enum(["local", "s3"]).default("local"),
+  // Escape hatch for a single always-on VM with a persistent volume mounted at
+  // the local storage root. Required in production when STORAGE_DRIVER=local.
+  ALLOW_LOCAL_STORAGE_IN_PROD: z.enum(["true", "false"]).optional(),
   S3_BUCKET: z.string().optional(),
   S3_REGION: z.string().optional(),
   // Custom endpoint for S3-compatible providers (R2, MinIO). Omit for AWS S3.
@@ -31,13 +37,9 @@ const envSchema = z.object({
     .string()
     .url()
     .default("https://api.openregister.de"),
-  // WhatsApp Business Cloud (Phase 3 — provided by the client). Without the
-  // access token + phone-number id the messaging adapter stays in demo-safe
-  // mock mode (resolveAdapterMode → "mock"). WHATSAPP_USE_TEMPLATES=true
-  // switches LIVE sends to Meta-approved HSM templates (required for business-
-  // initiated messages outside the 24h session window). Declared here for
-  // central validation/documentation; the adapter reads process.env directly
-  // so it stays injectable in unit tests.
+  // WhatsApp Business Cloud — parked until Meta setup completes. Without the
+  // access token + phone-number id the adapter stays in mock mode and the
+  // tasks UI uses click-to-chat instead of pretending Cloud sends succeed.
   WHATSAPP_ACCESS_TOKEN: z.string().optional(),
   WHATSAPP_PHONE_NUMBER_ID: z.string().optional(),
   // Business display number this WABA represents, in E.164 without the "+"
@@ -49,14 +51,16 @@ const envSchema = z.object({
   WHATSAPP_USE_TEMPLATES: z.enum(["true", "false"]).optional(),
   WHATSAPP_TEMPLATE_LANGUAGE: z.string().optional(),
   OUTBOX_STALE_SENDING_MINUTES: z.coerce.number().int().min(5).default(15),
-  // Inbound webhook (§0d step 3). WHATSAPP_WEBHOOK_VERIFY_TOKEN answers Meta's
-  // GET subscribe handshake; WHATSAPP_APP_SECRET validates the HMAC signature on
-  // POST receipts/replies. Both optional: without them the webhook route is
-  // inert (no verification, no state changes) so it is demo-safe to deploy.
-  // Declared here for documentation; the route reads process.env directly so it
-  // stays injectable in unit tests.
+  // Inbound webhook. Optional until Meta setup — without these the webhook
+  // route stays inert.
   WHATSAPP_WEBHOOK_VERIFY_TOKEN: z.string().optional(),
   WHATSAPP_APP_SECRET: z.string().optional(),
+  // Must be true behind a reverse proxy in production so login rate limits
+  // key on the real client IP (see client-ip.ts).
+  TRUST_PROXY: z.enum(["true", "false"]).optional(),
+  // Resend email. Optional: without both vars the email adapter stays mock.
+  RESEND_API_KEY: z.string().optional(),
+  RESEND_FROM_EMAIL: z.string().optional(),
 }).superRefine((value, ctx) => {
   // The S3 driver is useless without a bucket — fail fast at startup rather
   // than on the first upload.
@@ -65,6 +69,60 @@ const envSchema = z.object({
       code: z.ZodIssueCode.custom,
       path: ["S3_BUCKET"],
       message: "S3_BUCKET is required when STORAGE_DRIVER=s3",
+    });
+  }
+  if (!isProduction) return;
+  // Single-VM demos may set ALLOW_LOCAL_STORAGE_IN_PROD=true and keep a local
+  // APP_BASE_URL. Multi-replica / public prod must use HTTPS non-localhost.
+  const allowSingleVmLocal =
+    value.ALLOW_LOCAL_STORAGE_IN_PROD === "true" &&
+    value.STORAGE_DRIVER === "local";
+  if (
+    !allowSingleVmLocal &&
+    (value.APP_BASE_URL.includes("localhost") ||
+      value.APP_BASE_URL.startsWith("http://"))
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["APP_BASE_URL"],
+      message:
+        "Production requires a public HTTPS APP_BASE_URL (magic links use it)",
+    });
+  }
+  if (value.AUTH_SECRET.length < 32 || PLACEHOLDER_SECRET.test(value.AUTH_SECRET)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["AUTH_SECRET"],
+      message: "Production AUTH_SECRET must be ≥32 chars and not a placeholder",
+    });
+  }
+  if (
+    value.TOKEN_SECRET.length < 32 ||
+    PLACEHOLDER_SECRET.test(value.TOKEN_SECRET)
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["TOKEN_SECRET"],
+      message: "Production TOKEN_SECRET must be ≥32 chars and not a placeholder",
+    });
+  }
+  if (
+    value.STORAGE_DRIVER === "local" &&
+    value.ALLOW_LOCAL_STORAGE_IN_PROD !== "true"
+  ) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["STORAGE_DRIVER"],
+      message:
+        "Production requires STORAGE_DRIVER=s3 (or ALLOW_LOCAL_STORAGE_IN_PROD=true with a persistent volume)",
+    });
+  }
+  if (value.TRUST_PROXY !== "true") {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["TRUST_PROXY"],
+      message:
+        "Production behind a reverse proxy must set TRUST_PROXY=true (login rate limits)",
     });
   }
 });
@@ -77,6 +135,7 @@ export const env = envSchema.parse({
   TOKEN_SECRET: process.env.TOKEN_SECRET,
   APP_BASE_URL: process.env.APP_BASE_URL,
   STORAGE_DRIVER: process.env.STORAGE_DRIVER,
+  ALLOW_LOCAL_STORAGE_IN_PROD: process.env.ALLOW_LOCAL_STORAGE_IN_PROD,
   S3_BUCKET: process.env.S3_BUCKET,
   S3_REGION: process.env.S3_REGION,
   S3_ENDPOINT: process.env.S3_ENDPOINT,
@@ -96,6 +155,9 @@ export const env = envSchema.parse({
   OUTBOX_STALE_SENDING_MINUTES: process.env.OUTBOX_STALE_SENDING_MINUTES,
   WHATSAPP_WEBHOOK_VERIFY_TOKEN: process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN,
   WHATSAPP_APP_SECRET: process.env.WHATSAPP_APP_SECRET,
+  TRUST_PROXY: process.env.TRUST_PROXY,
+  RESEND_API_KEY: process.env.RESEND_API_KEY,
+  RESEND_FROM_EMAIL: process.env.RESEND_FROM_EMAIL,
 });
 
 if (env.AUTH_SECRET === env.TOKEN_SECRET) {

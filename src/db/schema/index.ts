@@ -21,3 +21,4 @@ export * from "./activity-log";
 export * from "./message-templates";
 export * from "./message-deliveries";
 export * from "./outbound-messages";
+export * from "./rate-limit-buckets";

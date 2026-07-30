@@ -166,6 +166,7 @@ export const entityKind = pgEnum("entity_kind", [
   "document",
   "signature",
   "application",
+  "user",
 ]);
 
 export const actorKind = pgEnum("actor_kind", [

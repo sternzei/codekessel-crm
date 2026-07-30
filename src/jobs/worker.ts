@@ -13,7 +13,7 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import * as schema from "@/db/schema";
 import { logger } from "@/lib/logger";
-import { enqueueTaskMessage } from "@/modules/messaging/outbox";
+import { enqueueAndDispatchOnHandle } from "@/modules/messaging/outbox";
 import { resolveRecipient } from "@/modules/messaging/send";
 import { ACTIVE_TASK_STATUSES, isActiveTaskStatus } from "@/modules/tasks/status";
 import { getOrIssueMagicLinkForTask } from "@/modules/tokens/service";
@@ -25,7 +25,8 @@ if (!url) throw new Error("MIGRATION_DATABASE_URL is not set");
 const sql = postgres(url, { max: 3 });
 const db = drizzle(sql, { schema });
 
-const { reminderJobs, tasks, participants, users, activityLog } = schema;
+const { reminderJobs, tasks, participants, users, activityLog, rateLimitBuckets } =
+  schema;
 
 const POLL_INTERVAL_MS = 15_000;
 // Up to 3s of random jitter per tick so replicas don't poll in lockstep.
@@ -38,18 +39,32 @@ const RETRY_DELAY_MS = 5 * 60_000;
 // monitor can detect a stalled/dead worker even when nothing is due.
 const HEARTBEAT_EVERY_TICKS = 4;
 
-// "queued" = a pending outbound message was written to the approval outbox; the
-// reminder is considered handled. No message is dispatched by the worker — a
-// signed-in user must approve the queued row before it reaches the provider.
-type DispatchOutcome = "queued" | "no_recipient" | "failed";
+// "sent" = reminder message was dispatched immediately (click/schedule trigger
+// counts as approval). "queued" retained for backward-compatible log readers.
+type DispatchOutcome = "sent" | "queued" | "no_recipient" | "failed";
 
 export async function runOnce(): Promise<{
   remindersSent: number;
   tasksEscalated: number;
+  rateLimitsPruned: number;
 }> {
   const remindersSent = await drainDueReminders();
   const tasksEscalated = await escalateOverdueTasks();
-  return { remindersSent, tasksEscalated };
+  const rateLimitsPruned = await pruneExpiredRateLimitBuckets();
+  return { remindersSent, tasksEscalated, rateLimitsPruned };
+}
+
+/**
+ * Drops rate-limit buckets whose window has closed. Nothing else deletes the
+ * anonymous `/t` keys (only a successful login clears its own bucket), so
+ * without this sweep the table grows one permanent row per client IP.
+ */
+async function pruneExpiredRateLimitBuckets(): Promise<number> {
+  const deleted = await db
+    .delete(rateLimitBuckets)
+    .where(lte(rateLimitBuckets.resetAt, new Date()))
+    .returning({ key: rateLimitBuckets.key });
+  return deleted.length;
 }
 
 async function drainDueReminders(): Promise<number> {
@@ -109,7 +124,7 @@ async function drainDueReminders(): Promise<number> {
       let outcome: DispatchOutcome;
       if (job.channel === "internal") {
         outcome = (await createReminderCallTask(task, job.templateKey))
-          ? "queued"
+          ? "sent"
           : "no_recipient";
       } else if (job.channel === "whatsapp" || job.channel === "email") {
         outcome = await sendExternalReminder(task, job.channel, job.templateKey);
@@ -117,7 +132,7 @@ async function drainDueReminders(): Promise<number> {
         outcome = "no_recipient";
       }
 
-      if (outcome === "queued") {
+      if (outcome === "sent" || outcome === "queued") {
         await db
           .update(reminderJobs)
           .set({ status: "sent", sentAt: new Date(), attempts: job.attempts + 1 })
@@ -191,22 +206,22 @@ async function sendExternalReminder(
       ? await getOrIssueMagicLinkForTask(db, task)
       : null;
 
-  // Approval gate: enqueue a pending outbox row instead of dispatching. A
-  // signed-in user must approve it before it reaches the WhatsApp/email
-  // provider — the worker never auto-sends.
-  const ok = await enqueueTaskMessage(db, {
+  // Reminder fire-at IS the send trigger — dispatch immediately via the
+  // business Cloud API / email adapter (no Postausgang hop).
+  const outcome = await enqueueAndDispatchOnHandle(db, {
     tenantId: task.tenantId,
     taskId: task.id,
     channel,
     templateKey: templateKey ?? `reminder_${task.type}`,
     recipient,
+    source: "reminder",
     variables: {
       firstName: recipient.displayName ?? "",
       title: task.title,
       ...(link ? { link } : {}),
     },
   });
-  return ok ? "queued" : "failed";
+  return outcome === "dispatched" ? "sent" : "failed";
 }
 
 /** "Reminder call" step: an internal task for the responsible consultant. */
@@ -410,9 +425,13 @@ async function loop(): Promise<void> {
   let ticks = 0;
   while (running) {
     try {
-      const { remindersSent, tasksEscalated } = await runOnce();
-      if (remindersSent || tasksEscalated) {
-        logger.info("worker tick", { remindersSent, tasksEscalated });
+      const { remindersSent, tasksEscalated, rateLimitsPruned } = await runOnce();
+      if (remindersSent || tasksEscalated || rateLimitsPruned) {
+        logger.info("worker tick", {
+          remindersSent,
+          tasksEscalated,
+          rateLimitsPruned,
+        });
       }
     } catch (error: unknown) {
       logger.error("worker tick failed", {

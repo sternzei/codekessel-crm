@@ -26,12 +26,21 @@ export type EnqueueTaskMessageParams = {
   createdByUserId?: string;
 };
 
+type TenantRunner = <T>(
+  tenantId: string,
+  operation: (tx: DbHandle) => Promise<T>,
+) => Promise<T>;
+
+const defaultTenantRunner: TenantRunner = (tenantId, operation) =>
+  withTenant(tenantId, operation);
+
 /**
  * Approval gate entry point. Renders the message and writes ONE pending row to
- * the outbox instead of dispatching — nothing reaches the provider here. All
- * system send paths (routing engine, reminder worker, manual internal action)
- * funnel through this so no outbound message is sent without a later human
- * approve action. Returns true once the pending row exists.
+ * the outbox instead of dispatching — nothing reaches the provider here.
+ * System send paths (routing engine, reminder worker) funnel through this so
+ * no *automated* outbound message is sent without a later human approve
+ * action. Consultant-initiated sends use {@link enqueueAndDispatchManual}
+ * instead (the click is the approval). Returns true once the pending row exists.
  */
 export async function enqueueTaskMessage(
   tx: DbHandle,
@@ -76,6 +85,169 @@ export async function enqueueTaskMessage(
     },
   });
   return Boolean(row);
+}
+
+export type ImmediateDispatchSource = "manual_send" | "routing" | "reminder";
+
+export type ImmediateDispatchParams = EnqueueTaskMessageParams & {
+  readonly actorUserId?: string | null;
+  readonly source: ImmediateDispatchSource;
+  readonly adapter?: ChannelAdapter;
+};
+
+export type ManualDispatchParams = EnqueueTaskMessageParams & {
+  readonly actorUserId: string;
+  readonly adapter?: ChannelAdapter;
+  readonly runWithTenant?: TenantRunner;
+};
+
+export type ManualDispatchOutcome = "dispatched" | "failed";
+
+/**
+ * Immediate Cloud API / email dispatch on an existing DB handle (tenant tx or
+ * owner connection). The human or system trigger that called this IS the
+ * approval — the row never waits in Postausgang. Used by consultant manual
+ * send, routing-engine follow-ups, and reminder jobs.
+ */
+export async function enqueueAndDispatchOnHandle(
+  tx: DbHandle,
+  params: ImmediateDispatchParams,
+): Promise<ManualDispatchOutcome> {
+  const rendered = await renderTemplate(
+    tx,
+    params.templateKey,
+    params.channel,
+    params.variables,
+  );
+  const now = new Date();
+  const [row] = await tx
+    .insert(outboundMessages)
+    .values({
+      tenantId: params.tenantId,
+      taskId: params.taskId,
+      channel: params.channel,
+      templateKey: params.templateKey,
+      recipientKind: params.recipient.kind,
+      recipientId: params.recipient.id,
+      recipientPhone: params.recipient.phone ?? null,
+      recipientEmail: params.recipient.email ?? null,
+      recipientName: params.recipient.displayName ?? null,
+      subject: rendered.subject ?? null,
+      body: rendered.body,
+      variables: params.variables,
+      status: "sending",
+      createdByUserId: params.actorUserId ?? null,
+      approvedByUserId: params.actorUserId ?? null,
+      approvedAt: now,
+    })
+    .returning({
+      id: outboundMessages.id,
+      taskId: outboundMessages.taskId,
+      channel: outboundMessages.channel,
+      templateKey: outboundMessages.templateKey,
+      recipientKind: outboundMessages.recipientKind,
+      recipientId: outboundMessages.recipientId,
+      recipientPhone: outboundMessages.recipientPhone,
+      recipientEmail: outboundMessages.recipientEmail,
+      recipientName: outboundMessages.recipientName,
+      subject: outboundMessages.subject,
+      body: outboundMessages.body,
+      variables: outboundMessages.variables,
+    });
+  if (!row) return "failed";
+  await logActivity(tx, {
+    tenantId: params.tenantId,
+    actorKind: params.actorUserId ? "internal_user" : "system",
+    actorUserId: params.actorUserId ?? undefined,
+    subjectKind: "task",
+    subjectId: params.taskId,
+    event: "message_approved",
+    meta: {
+      channel: params.channel,
+      templateKey: params.templateKey,
+      outboundMessageId: row.id,
+      source: params.source,
+    },
+  });
+  const channel = row.channel as MessageChannel;
+  const recipient: Recipient = {
+    kind: row.recipientKind as "participant" | "employer",
+    id: row.recipientId,
+    phone: row.recipientPhone,
+    email: row.recipientEmail,
+    displayName: row.recipientName,
+  };
+  const adapter = params.adapter ?? getAdapter(channel);
+  const result = await adapter.send({
+    tenantId: params.tenantId,
+    channel,
+    recipient,
+    subject: row.subject ?? undefined,
+    body: row.body,
+    templateKey: row.templateKey,
+    taskId: row.taskId ?? undefined,
+    variables: row.variables ?? undefined,
+  });
+  const nextStatus = statusForSendResult(result.ok);
+  await tx
+    .update(outboundMessages)
+    .set({
+      status: nextStatus,
+      providerMessageId: result.ok ? result.providerMessageId ?? null : null,
+      errorDetail: result.ok ? null : result.error,
+      sentAt: result.ok ? new Date() : null,
+      failedAt: result.ok ? null : new Date(),
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        eq(outboundMessages.id, row.id),
+        eq(outboundMessages.tenantId, params.tenantId),
+        eq(outboundMessages.status, "sending"),
+      ),
+    );
+  if (result.ok && result.providerMessageId) {
+    await recordOutboundDelivery(tx, {
+      tenantId: params.tenantId,
+      taskId: row.taskId ?? undefined,
+      channel,
+      providerMessageId: result.providerMessageId,
+      recipient,
+    });
+  }
+  await logActivity(tx, {
+    tenantId: params.tenantId,
+    actorKind: params.actorUserId ? "internal_user" : "system",
+    actorUserId: params.actorUserId ?? undefined,
+    subjectKind: "task",
+    subjectId: row.taskId ?? row.id,
+    event: result.ok ? "message_dispatched" : "message_dispatch_failed",
+    meta: {
+      channel: row.channel,
+      templateKey: row.templateKey,
+      recipientKind: row.recipientKind,
+      outboundMessageId: row.id,
+      source: params.source,
+    },
+  });
+  return result.ok ? "dispatched" : "failed";
+}
+
+/**
+ * Consultant-initiated Cloud API send. The button click IS the human approval,
+ * so this path does not wait in Postausgang and does not apply SoD.
+ */
+export async function enqueueAndDispatchManual(
+  params: ManualDispatchParams,
+): Promise<ManualDispatchOutcome> {
+  const runWithTenant = params.runWithTenant ?? defaultTenantRunner;
+  return runWithTenant(params.tenantId, (tx) =>
+    enqueueAndDispatchOnHandle(tx, {
+      ...params,
+      source: "manual_send",
+      actorUserId: params.actorUserId,
+    }),
+  );
 }
 
 export type PendingOutboundMessage = {
@@ -186,14 +358,6 @@ export type ApproveMessageParams = {
   adapter?: ChannelAdapter;
   runWithTenant?: TenantRunner;
 };
-
-type TenantRunner = <T>(
-  tenantId: string,
-  operation: (tx: DbHandle) => Promise<T>,
-) => Promise<T>;
-
-const defaultTenantRunner: TenantRunner = (tenantId, operation) =>
-  withTenant(tenantId, operation);
 
 type ClaimApprovalResult =
   | { readonly outcome: ApproveOutcome; readonly row?: never }

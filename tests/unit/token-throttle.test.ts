@@ -13,47 +13,46 @@ beforeEach(() => resetRateLimits());
 
 const OPTS = { limit: 3, windowMs: 60_000 };
 
-test("allows exactly `limit` requests, then throttles the next one", () => {
-  assert.equal(isExternalRequestThrottled("k", OPTS), false); // 1
-  assert.equal(isExternalRequestThrottled("k", OPTS), false); // 2
-  assert.equal(isExternalRequestThrottled("k", OPTS), false); // 3 (== limit)
-  assert.equal(isExternalRequestThrottled("k", OPTS), true); // 4 > limit
+test("records every call and blocks once the budget is exhausted", async () => {
+  assert.equal(await isExternalRequestThrottled("k", OPTS), false); // 1
+  assert.equal(await isExternalRequestThrottled("k", OPTS), false); // 2
+  assert.equal(await isExternalRequestThrottled("k", OPTS), false); // 3 (== limit)
+  assert.equal(await isExternalRequestThrottled("k", OPTS), true); // 4 > limit
 });
 
-test("counts reads too — no success clears the bucket (volumetric)", () => {
-  for (let i = 0; i < OPTS.limit; i += 1) {
-    assert.equal(isExternalRequestThrottled("k", OPTS), false);
+test("stays blocked for further calls within the window", async () => {
+  for (let i = 0; i < 3; i += 1) {
+    assert.equal(await isExternalRequestThrottled("k", OPTS), false);
   }
-  assert.equal(isExternalRequestThrottled("k", OPTS), true);
-  assert.equal(isExternalRequestThrottled("k", OPTS), true);
+  assert.equal(await isExternalRequestThrottled("k", OPTS), true);
+  assert.equal(await isExternalRequestThrottled("k", OPTS), true);
 });
 
-test("per-IP keys are isolated", () => {
+test("page keys are isolated by IP", async () => {
   const opts = { limit: 1, windowMs: 60_000 };
-  assert.equal(isExternalRequestThrottled(tokenPageKey("1.1.1.1"), opts), false);
-  assert.equal(isExternalRequestThrottled(tokenPageKey("1.1.1.1"), opts), true);
-  assert.equal(isExternalRequestThrottled(tokenPageKey("2.2.2.2"), opts), false);
+  assert.equal(await isExternalRequestThrottled(tokenPageKey("1.1.1.1"), opts), false);
+  assert.equal(await isExternalRequestThrottled(tokenPageKey("1.1.1.1"), opts), true);
+  assert.equal(await isExternalRequestThrottled(tokenPageKey("2.2.2.2"), opts), false);
 });
 
-test("page and action budgets share no bucket for the same IP", () => {
+test("page and action budgets are independent", async () => {
   const opts = { limit: 1, windowMs: 60_000 };
-  assert.equal(isExternalRequestThrottled(tokenPageKey("9.9.9.9"), opts), false);
-  assert.equal(isExternalRequestThrottled(tokenPageKey("9.9.9.9"), opts), true);
-  // The action bucket for the same IP is a distinct key, so still open.
+  assert.equal(await isExternalRequestThrottled(tokenPageKey("9.9.9.9"), opts), false);
+  assert.equal(await isExternalRequestThrottled(tokenPageKey("9.9.9.9"), opts), true);
   assert.equal(
-    isExternalRequestThrottled(tokenActionKey("9.9.9.9"), opts),
+    await isExternalRequestThrottled(tokenActionKey("9.9.9.9"), opts),
     false,
   );
 });
 
-test("window expiry re-opens the budget", () => {
+test("window expiry re-opens the budget", async () => {
   const opts = { limit: 1, windowMs: 5 };
-  assert.equal(isExternalRequestThrottled("k", opts), false);
-  assert.equal(isExternalRequestThrottled("k", opts), true);
+  assert.equal(await isExternalRequestThrottled("k", opts), false);
+  assert.equal(await isExternalRequestThrottled("k", opts), true);
   const orig = Date.now;
   Date.now = () => orig() + 10;
   try {
-    assert.equal(isExternalRequestThrottled("k", opts), false);
+    assert.equal(await isExternalRequestThrottled("k", opts), false);
   } finally {
     Date.now = orig;
   }

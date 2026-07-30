@@ -308,12 +308,17 @@ const SIGNER_LABEL: Record<string, string> = {
   internal_user: "Intern",
 };
 
+const STAMP_IMAGE_WIDTH = 180;
+const STAMP_IMAGE_MAX_HEIGHT = 72;
+const STAMP_SLOT_WIDTH = 240;
+
 /**
- * Produces the signed PDF once every required signature is collected: stamps
- * each drawn signature into the last-page footer band AND appends an
- * "Unterschriften-Nachweis" (SES audit) page. The original file stays
- * untouched — `originalSha256` is what was actually signed and is cited on
- * the certificate.
+ * Produces the signed PDF once every required signature is collected:
+ *  1. banner on page 1 pointing to the signature pages,
+ *  2. a high-contrast signature panel on the last content page,
+ *  3. a dedicated "Unterschriften-Nachweis" page with large signature images.
+ * The original file stays untouched — `originalSha256` is what was actually
+ * signed and is cited on the certificate.
  */
 export async function generateSignedArtifact(params: {
   originalRelativePath: string;
@@ -341,66 +346,146 @@ export async function generateSignedArtifact(params: {
     }),
   );
 
-  // Stamp into the footer band of the last content page.
   const pages = doc.getPages();
+  const firstPage = pages[0];
   const lastPage = pages[pages.length - 1];
-  let stampX = 50;
-  const stampY = 60;
+  const { width: firstWidth, height: firstHeight } = firstPage.getSize();
+  const { width: pageWidth } = lastPage.getSize();
+
+  // Page-1 notice so the signed state is obvious even before scrolling.
+  const bannerHeight = 28;
+  const bannerY = firstHeight - 40;
+  firstPage.drawRectangle({
+    x: 40,
+    y: bannerY,
+    width: Math.min(firstWidth - 80, 515),
+    height: bannerHeight,
+    color: rgb(0.93, 0.96, 0.9),
+    borderColor: rgb(0.2, 0.45, 0.25),
+    borderWidth: 1,
+  });
+  firstPage.drawText(
+    "Elektronisch unterschrieben — Unterschriften siehe letzte Seite und Unterschriften-Nachweis.",
+    {
+      x: 48,
+      y: bannerY + 10,
+      size: 8,
+      font: bold,
+      color: rgb(0.15, 0.35, 0.2),
+    },
+  );
+
+  // High-contrast panel on the last content page (white band + border).
+  const panelHeight = 118;
+  const panelY = 24;
+  lastPage.drawRectangle({
+    x: 36,
+    y: panelY,
+    width: pageWidth - 72,
+    height: panelHeight,
+    color: rgb(1, 1, 1),
+    borderColor: rgb(0.15, 0.15, 0.2),
+    borderWidth: 1.25,
+  });
+  lastPage.drawText("Elektronische Unterschrift(en)", {
+    x: 48,
+    y: panelY + panelHeight - 16,
+    size: 10,
+    font: bold,
+  });
+
+  let stampX = 48;
+  const stampY = panelY + 36;
   for (let i = 0; i < params.signatures.length; i += 1) {
     const s = params.signatures[i];
     const img = images[i];
     if (img) {
-      const w = 120;
-      const h = (img.height / img.width) * w;
-      lastPage.drawImage(img, { x: stampX, y: stampY, width: w, height: Math.min(h, 40) });
+      const w = STAMP_IMAGE_WIDTH;
+      const h = Math.min((img.height / img.width) * w, STAMP_IMAGE_MAX_HEIGHT);
+      lastPage.drawImage(img, { x: stampX, y: stampY, width: w, height: h });
+    } else {
+      lastPage.drawText("(Unterschrift gespeichert — Bild nicht einbettbar)", {
+        x: stampX,
+        y: stampY + 24,
+        size: 7,
+        font,
+        color: rgb(0.55, 0.2, 0.2),
+      });
     }
     lastPage.drawText(
       `${SIGNER_LABEL[s.signerKind] ?? s.signerKind}: ${s.signerName}`,
-      { x: stampX, y: stampY - 10, size: 7, font },
+      { x: stampX, y: stampY - 12, size: 8, font: bold },
     );
-    lastPage.drawText(fmt(s.signedAt), { x: stampX, y: stampY - 19, size: 7, font, color: rgb(0.4, 0.4, 0.4) });
-    stampX += 170;
+    lastPage.drawText(fmt(s.signedAt), {
+      x: stampX,
+      y: stampY - 23,
+      size: 7,
+      font,
+      color: rgb(0.35, 0.35, 0.35),
+    });
+    stampX += STAMP_SLOT_WIDTH;
   }
 
-  // Append the audit certificate page.
+  // Append the audit certificate page with large signature images.
   const cert = doc.addPage([595, 842]);
-  cert.drawText("Unterschriften-Nachweis", { x: 50, y: 790, size: 16, font: bold });
+  cert.drawText("Unterschriften-Nachweis", { x: 50, y: 790, size: 18, font: bold });
   cert.drawText(
     "Einfache elektronische Signatur (eIDAS SES) — PLATZHALTER, rechtliche Prüfung ausstehend",
-    { x: 50, y: 772, size: 8, font, color: rgb(0.45, 0.45, 0.45) },
+    { x: 50, y: 770, size: 8, font, color: rgb(0.45, 0.45, 0.45) },
   );
-  cert.drawText(`Dokument: ${params.documentTitle}`, { x: 50, y: 740, size: 10, font });
+  cert.drawText(`Dokument: ${params.documentTitle}`, { x: 50, y: 740, size: 11, font });
   cert.drawText(`SHA-256 (signierter Originalinhalt): ${params.originalSha256}`, {
     x: 50,
-    y: 724,
+    y: 722,
     size: 7,
     font,
     color: rgb(0.35, 0.35, 0.35),
   });
 
-  let y = 690;
+  let y = 680;
   for (let i = 0; i < params.signatures.length; i += 1) {
     const s = params.signatures[i];
     const img = images[i];
-    cert.drawText(SIGNER_LABEL[s.signerKind] ?? s.signerKind, { x: 50, y, size: 11, font: bold });
-    y -= 16;
+    cert.drawRectangle({
+      x: 44,
+      y: y - 150,
+      width: 507,
+      height: 160,
+      color: rgb(0.98, 0.98, 0.99),
+      borderColor: rgb(0.75, 0.75, 0.8),
+      borderWidth: 0.75,
+    });
+    cert.drawText(SIGNER_LABEL[s.signerKind] ?? s.signerKind, {
+      x: 56,
+      y: y - 18,
+      size: 12,
+      font: bold,
+    });
+    let metaY = y - 36;
     for (const [label, value] of [
       ["Name", s.signerName],
       ["Signiert am", fmt(s.signedAt)],
       ["IP-Adresse", s.ipAddress],
       ["Verfahren", s.provider],
     ] as [string, string][]) {
-      cert.drawText(label, { x: 50, y, size: 9, font, color: rgb(0.4, 0.4, 0.4) });
-      cert.drawText(value || "—", { x: 170, y, size: 9, font });
-      y -= 14;
+      cert.drawText(label, { x: 56, y: metaY, size: 9, font, color: rgb(0.4, 0.4, 0.4) });
+      cert.drawText(value || "—", { x: 170, y: metaY, size: 9, font });
+      metaY -= 14;
     }
     if (img) {
-      const w = 120;
-      const h = Math.min((img.height / img.width) * w, 40);
-      cert.drawImage(img, { x: 170, y: y - h, width: w, height: h });
-      y -= h + 8;
+      const w = 220;
+      const h = Math.min((img.height / img.width) * w, 90);
+      cert.drawImage(img, { x: 320, y: y - 20 - h, width: w, height: h });
+    } else {
+      cert.drawText("Unterschriftsbild fehlt / konnte nicht geladen werden.", {
+        x: 320,
+        y: y - 60,
+        size: 8,
+        font,
+        color: rgb(0.55, 0.2, 0.2),
+      });
     }
-    y -= 18;
+    y -= 180;
   }
 
   return persist(await doc.save());

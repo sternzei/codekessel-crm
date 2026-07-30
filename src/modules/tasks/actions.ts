@@ -11,7 +11,7 @@ import { resolveTaskWriteAccess } from "@/modules/auth/task-scope";
 import { getSession } from "@/modules/auth/session";
 import { resolveAdapterMode } from "@/modules/messaging/adapters";
 import { buildWaMeUrl, toWaMeNumber } from "@/modules/messaging/click-to-chat";
-import { enqueueTaskMessage } from "@/modules/messaging/outbox";
+import { enqueueAndDispatchManual } from "@/modules/messaging/outbox";
 import { resolveRecipient } from "@/modules/messaging/send";
 import { renderTemplate } from "@/modules/messaging/templates";
 import { normalizePhone } from "@/modules/participants/phone";
@@ -106,10 +106,11 @@ export async function revokeTaskLink(formData: FormData): Promise<void> {
   redirect(`/tasks?revoked=${revokedCount}`);
 }
 
-// Manual-send outcomes surfaced back via a redirect. "queued" means a pending
-// outbox row was created for later human approval — nothing was dispatched.
+// Manual-send outcomes surfaced back via a redirect. "sent" means the Cloud
+// API path already dispatched (the consultant click is the approval).
 type WhatsAppSendOutcome =
-  | "queued"
+  | "sent"
+  | "cloud_unavailable"
   | "no_phone"
   | "no_consent"
   | "must_claim"
@@ -141,13 +142,12 @@ async function hasWhatsAppOptIn(
 }
 
 /**
- * Queues a task's WhatsApp message for approval from the internal console.
- * Tenant-scoped and session-guarded like every other task action. Resolves the
- * recipient, requires a phone, and — only in LIVE mode — requires a WhatsApp
- * opt-in for participant recipients. Instead of dispatching, it writes a pending
- * outbox row (enqueueTaskMessage): a signed-in user must approve it in the
- * Postausgang before anything reaches the WhatsApp Cloud API. Reuses the
- * existing `task_<type>` templates (no new template infrastructure).
+ * Sends a task's WhatsApp message immediately via the business Cloud API
+ * number. Tenant-scoped and session-guarded. Resolves the recipient, requires
+ * a phone, and — only in LIVE mode — requires a WhatsApp opt-in for participant
+ * recipients. The consultant click IS the human approval: this path does not
+ * wait in Postausgang (that gate remains for system-queued messages only).
+ * Mints a fresh magic link when the task channel needs one.
  */
 export async function sendTaskWhatsApp(formData: FormData): Promise<void> {
   const session = await getSession();
@@ -155,28 +155,38 @@ export async function sendTaskWhatsApp(formData: FormData): Promise<void> {
 
   const taskId = z.string().uuid().parse(formData.get("taskId"));
 
-  const outcome = await withTenant<WhatsAppSendOutcome>(
+  // Until Meta Cloud API credentials are configured, refuse the "Firmennummer"
+  // path — the UI uses click-to-chat instead. Never report a mock send as sent.
+  if (resolveAdapterMode("whatsapp") !== "live") {
+    redirect("/tasks?wa=cloud_unavailable");
+  }
+
+  const prepared = await withTenant(
     session.tenantId,
     async (tx) => {
       const access = await resolveTaskWriteAccess(tx, taskId, {
         userId: session.id,
         role: session.role,
       });
-      if (access !== "allowed") return access;
+      if (access !== "allowed") {
+        return { outcome: access as WhatsAppSendOutcome } as const;
+      }
       const [task] = await tx.select().from(tasks).where(eq(tasks.id, taskId));
-      if (!task || task.ownerKind === "internal_user") return "not_applicable";
+      if (!task || task.ownerKind === "internal_user") {
+        return { outcome: "not_applicable" as const };
+      }
 
       const ownerKind = task.ownerKind;
       const subjectId =
         ownerKind === "participant"
           ? task.ownerParticipantId
           : task.ownerEmployerId;
-      if (!subjectId) return "not_applicable";
+      if (!subjectId) return { outcome: "not_applicable" as const };
 
       const recipient = await resolveRecipient(tx, ownerKind, subjectId);
-      if (!recipient) return "not_applicable";
+      if (!recipient) return { outcome: "not_applicable" as const };
       if (!normalizePhone({ raw: recipient.phone }).normalized) {
-        return "no_phone";
+        return { outcome: "no_phone" as const };
       }
 
       // Consent gate only bites in LIVE mode and only for participants (the
@@ -186,7 +196,7 @@ export async function sendTaskWhatsApp(formData: FormData): Promise<void> {
         ownerKind === "participant" &&
         !(await hasWhatsAppOptIn(tx, subjectId))
       ) {
-        return "no_consent";
+        return { outcome: "no_consent" as const };
       }
 
       // F3: magic-link tasks must carry a working /t/{jwt} link. Only the hash
@@ -197,35 +207,56 @@ export async function sendTaskWhatsApp(formData: FormData): Promise<void> {
           ? await getOrIssueMagicLinkForTask(tx, task)
           : null;
 
-      const ok = await enqueueTaskMessage(tx, {
-        tenantId: session.tenantId,
+      return {
+        outcome: "ready" as const,
         taskId: task.id,
-        channel: "whatsapp",
-        templateKey: `task_${task.type}`,
+        ownerKind,
         recipient,
-        createdByUserId: session.id,
+        templateKey: `task_${task.type}`,
         variables: {
           firstName: recipient.displayName ?? "",
           title: task.title,
           ...(link ? { link } : {}),
         },
-      });
-
-      await logActivity(tx, {
-        tenantId: session.tenantId,
-        actorKind: "internal_user",
-        actorUserId: session.id,
-        subjectKind: "task",
-        subjectId: task.id,
-        event: "whatsapp_manual_queued",
-        meta: { ok, recipientKind: ownerKind },
-      });
-
-      return ok ? "queued" : "failed";
+      };
     },
   );
 
-  redirect(outcome === "queued" ? "/outbox?queued=1" : `/tasks?wa=${outcome}`);
+  if (prepared.outcome !== "ready") {
+    redirect(`/tasks?wa=${prepared.outcome}`);
+  }
+
+  const dispatchOutcome = await enqueueAndDispatchManual({
+    tenantId: session.tenantId,
+    taskId: prepared.taskId,
+    channel: "whatsapp",
+    templateKey: prepared.templateKey,
+    recipient: prepared.recipient,
+    actorUserId: session.id,
+    variables: prepared.variables,
+  });
+
+  await withTenant(session.tenantId, async (tx) => {
+    await logActivity(tx, {
+      tenantId: session.tenantId,
+      actorKind: "internal_user",
+      actorUserId: session.id,
+      subjectKind: "task",
+      subjectId: prepared.taskId,
+      event:
+        dispatchOutcome === "dispatched"
+          ? "whatsapp_manual_sent"
+          : "whatsapp_manual_failed",
+      meta: {
+        recipientKind: prepared.ownerKind,
+        outbound: dispatchOutcome,
+      },
+    });
+  });
+
+  redirect(
+    dispatchOutcome === "dispatched" ? "/tasks?wa=sent" : "/tasks?wa=failed",
+  );
 }
 
 // Result of building a WhatsApp click-to-chat deep link. Returned (not

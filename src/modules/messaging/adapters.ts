@@ -14,6 +14,9 @@ import type {
 export type AdapterEnv = Partial<Record<string, string | undefined>>;
 export type AdapterMode = "live" | "mock";
 
+/** Abort hung Resend / Graph calls so the outbox worker cannot stall forever. */
+const PROVIDER_REQUEST_TIMEOUT_MS = 15_000;
+
 export function resolveAdapterMode(
   channel: MessageChannel,
   env: AdapterEnv = process.env,
@@ -125,6 +128,11 @@ class ResendEmailAdapter implements ChannelAdapter {
   ) {}
 
   async send(message: OutboundMessage): Promise<SendResult> {
+    const controller = new AbortController();
+    const timer = setTimeout(
+      () => controller.abort(),
+      PROVIDER_REQUEST_TIMEOUT_MS,
+    );
     try {
       const response = await fetch("https://api.resend.com/emails", {
         method: "POST",
@@ -133,6 +141,7 @@ class ResendEmailAdapter implements ChannelAdapter {
           "Content-Type": "application/json",
         },
         body: JSON.stringify(buildResendPayload(message, this.fromEmail)),
+        signal: controller.signal,
       });
 
       if (!response.ok) {
@@ -144,6 +153,8 @@ class ResendEmailAdapter implements ChannelAdapter {
         ok: false,
         error: error instanceof Error ? error.message : "unknown",
       };
+    } finally {
+      clearTimeout(timer);
     }
   }
 }

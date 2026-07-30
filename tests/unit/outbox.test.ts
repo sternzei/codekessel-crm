@@ -5,6 +5,8 @@ import { activityLog, messageDeliveries, outboundMessages } from "@/db/schema";
 import {
   approveAndDispatch,
   cancelOutboundMessage,
+  enqueueAndDispatchManual,
+  enqueueAndDispatchOnHandle,
   enqueueTaskMessage,
   isStaleSendingTimestamp,
   rejectOutboundMessage,
@@ -164,6 +166,80 @@ test("enqueueTaskMessage writes a pending row and never dispatches", async () =>
   assert.ok(typeof outboxInsert?.values.body === "string" && (outboxInsert.values.body as string).length > 0);
   const audit = fake.inserts.find((i) => i.table === activityLog);
   assert.equal(audit?.values.event, "message_queued");
+});
+
+test("enqueueAndDispatchOnHandle sends immediately without Postausgang wait", async () => {
+  const fake = makeFakeDb({
+    selectResults: [[]],
+    insertReturning: [
+      {
+        id: "om-manual-1",
+        taskId: "task-1",
+        channel: "whatsapp",
+        templateKey: "task_confirm_availability",
+        recipientKind: "participant",
+        recipientId: "participant-1",
+        recipientPhone: "+49 151 1234567",
+        recipientEmail: "lena@example.de",
+        recipientName: "Lena",
+        subject: null,
+        body: "Hallo Lena",
+        variables: { firstName: "Lena", title: "Verfügbarkeit bestätigen" },
+      },
+    ],
+  });
+  const { adapter, sent } = makeFakeAdapter({
+    ok: true,
+    providerMessageId: "wamid.manual",
+  });
+  const outcome = await enqueueAndDispatchOnHandle(fake.db, {
+    ...enqueueParams,
+    actorUserId: "consultant-1",
+    source: "routing",
+    adapter,
+  });
+  assert.equal(outcome, "dispatched");
+  assert.equal(sent.length, 1);
+  const outboxInsert = fake.inserts.find((i) => i.table === outboundMessages);
+  assert.equal(outboxInsert?.values.status, "sending");
+  assert.equal(outboxInsert?.values.createdByUserId, "consultant-1");
+  assert.equal(outboxInsert?.values.approvedByUserId, "consultant-1");
+  const delivery = fake.inserts.find((i) => i.table === messageDeliveries);
+  assert.ok(delivery, "provider id is mirrored to message_deliveries");
+});
+
+test("enqueueAndDispatchManual wraps on-handle dispatch in a tenant runner", async () => {
+  const fake = makeFakeDb({
+    selectResults: [[]],
+    insertReturning: [
+      {
+        id: "om-manual-2",
+        taskId: "task-1",
+        channel: "whatsapp",
+        templateKey: "task_confirm_availability",
+        recipientKind: "participant",
+        recipientId: "participant-1",
+        recipientPhone: "+49 151 1234567",
+        recipientEmail: "lena@example.de",
+        recipientName: "Lena",
+        subject: null,
+        body: "Hallo Lena",
+        variables: { firstName: "Lena", title: "Verfügbarkeit bestätigen" },
+      },
+    ],
+  });
+  const { adapter, sent } = makeFakeAdapter({
+    ok: true,
+    providerMessageId: "wamid.manual2",
+  });
+  const outcome = await enqueueAndDispatchManual({
+    ...enqueueParams,
+    actorUserId: "consultant-1",
+    adapter,
+    runWithTenant: makeTenantRunner(fake.db),
+  });
+  assert.equal(outcome, "dispatched");
+  assert.equal(sent.length, 1);
 });
 
 const pendingRow: Row = {

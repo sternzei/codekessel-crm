@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { DbHandle } from "@/db/client";
 import { reminderJobs, routingRules, tasks } from "@/db/schema";
 import { logActivity } from "@/modules/audit/log";
-import { enqueueTaskMessage } from "@/modules/messaging/outbox";
+import { enqueueAndDispatchOnHandle } from "@/modules/messaging/outbox";
 import { resolveRecipient } from "@/modules/messaging/send";
 import { ACTIVE_TASK_STATUSES, isActiveTaskStatus } from "@/modules/tasks/status";
 import { issueMagicLink } from "@/modules/tokens/service";
@@ -189,9 +189,9 @@ export async function processTransition(
 }
 
 /**
- * External owners get a magic link + a channel message QUEUED for approval.
- * Nothing is dispatched here: enqueueTaskMessage writes a pending outbox row
- * that a signed-in user must approve before it reaches the provider.
+ * External owners get a magic link + an immediate channel message. The status
+ * transition that created this task IS the send trigger — nothing waits in
+ * Postausgang for routing follow-ups (that queue is for other review flows).
  */
 async function dispatchExternal(
   tx: DbHandle,
@@ -225,12 +225,14 @@ async function dispatchExternal(
       ? ("email" as const)
       : ("whatsapp" as const);
 
-  await enqueueTaskMessage(tx, {
+  await enqueueAndDispatchOnHandle(tx, {
     tenantId: event.tenantId,
     taskId,
     channel,
     templateKey: `task_${rule.taskType}`,
     recipient,
+    source: "routing",
+    actorUserId: event.actorUserId ?? null,
     variables: {
       firstName: recipient.displayName ?? "",
       title: rule.titleTemplate,

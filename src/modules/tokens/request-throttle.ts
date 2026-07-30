@@ -10,7 +10,7 @@ import {
 
 // Server-only wrappers that resolve the client IP from the request headers and
 // apply the per-IP magic-link budgets. Kept out of throttle.ts so the pure
-// limiter stays importable from unit tests without pulling in next/headers.
+// key helpers stay importable from unit tests without pulling in next/headers.
 
 /**
  * Shared trust-boundary resolver (lib/client-ip): x-forwarded-for is only

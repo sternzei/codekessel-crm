@@ -1,7 +1,7 @@
-// Minimal in-memory failed-attempt throttle. Sufficient for a single-node
-// MVP (login brute-force protection). NOTE: state is per-process — behind
-// multiple instances, move this to Redis/Postgres. No external dependency by
-// design (web/hooks.md: no remote one-off packages).
+// Minimal failed-attempt throttle. In-memory map is the unit-test / single-
+// process default. Production login + `/t` paths use the Postgres-backed
+// async helpers in `rate-limit-store.ts` so multi-instance deploys share a
+// budget. No Redis by design (web/hooks.md: no remote one-off packages).
 //
 // Design: only *failures* count toward the limit, and a success clears the
 // bucket. Legitimate users are never throttled; an attacker guessing

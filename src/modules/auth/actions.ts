@@ -6,21 +6,31 @@ import { redirect } from "next/navigation";
 import { sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "@/db/client";
-import { rateLimitClientKey } from "@/lib/client-ip";
+import { requestClientIp } from "@/lib/client-ip";
 import {
-  clearAttempts,
-  isRateLimited,
-  recordFailure,
-} from "@/lib/rate-limit";
+  clearAttemptsAsync,
+  isRateLimitedAsync,
+  recordFailureAsync,
+} from "@/lib/rate-limit-store";
 import { createSession, destroySession } from "./session";
 import type { AppRole } from "./authorization";
 
-// Brute-force guard: cap *failed* login attempts per client IP within a
-// window. A successful login clears the counter, so legitimate users are
-// never throttled.
+// Brute-force guard with two budgets, both counting only *failed* attempts:
+//
+//   1. Per account+client — stops password guessing against one inbox. A
+//      successful login clears it, so legitimate users are never throttled.
+//   2. Per client IP across all accounts — stops password spraying, where one
+//      attacker tries a few passwords against many different addresses and
+//      would otherwise get a fresh per-account budget for each one.
+//
+// The IP budget applies ONLY when the IP is knowable (TRUST_PROXY + a proxy
+// that appends the peer address). Without it every caller shares one bucket,
+// so an IP-wide cap would lock out all users at once.
 const LOGIN_LIMIT = 10;
+const LOGIN_IP_LIMIT = 30;
 const LOGIN_WINDOW_MS = 5 * 60_000; // 5 minutes
 const LOGIN_OPTS = { limit: LOGIN_LIMIT, windowMs: LOGIN_WINDOW_MS };
+const LOGIN_IP_OPTS = { limit: LOGIN_IP_LIMIT, windowMs: LOGIN_WINDOW_MS };
 
 const credentialsSchema = z.object({
   email: z.string().email(),
@@ -37,12 +47,18 @@ type UserRow = {
   active: boolean;
 };
 
+const buildAccountKey = (email: string, clientKey: string): string =>
+  `login:acct:${email.trim().toLowerCase()}:${clientKey}`;
+
+const buildIpKey = (clientIp: string): string => `login:ip:${clientIp}`;
+
 export async function login(formData: FormData): Promise<void> {
   const headerStore = await headers();
-  // Keyed on the proxy-appended client IP only (see lib/client-ip): a
-  // spoofed x-forwarded-for first entry must not mint a fresh bucket.
-  const rateKey = `login:${rateLimitClientKey(headerStore)}`;
-  if (isRateLimited(rateKey, LOGIN_OPTS).limited) {
+  const clientIp = requestClientIp(headerStore);
+  const clientKey = clientIp ?? "untrusted";
+  const ipKey = clientIp ? buildIpKey(clientIp) : null;
+
+  if (ipKey && (await isRateLimitedAsync(ipKey, LOGIN_IP_OPTS)).limited) {
     redirect("/auth/sign-in?error=rate");
   }
 
@@ -51,8 +67,13 @@ export async function login(formData: FormData): Promise<void> {
     password: formData.get("password"),
   });
   if (!parsed.success) {
-    recordFailure(rateKey, LOGIN_OPTS);
+    if (ipKey) await recordFailureAsync(ipKey, LOGIN_IP_OPTS);
     redirect("/auth/sign-in?error=1");
+  }
+
+  const accountKey = buildAccountKey(parsed.data.email, clientKey);
+  if ((await isRateLimitedAsync(accountKey, LOGIN_OPTS)).limited) {
+    redirect("/auth/sign-in?error=rate");
   }
 
   // SECURITY DEFINER function: the only tenant-unscoped read in the app,
@@ -66,11 +87,14 @@ export async function login(formData: FormData): Promise<void> {
     user?.password_hash != null &&
     (await compare(parsed.data.password, user.password_hash));
   if (!user || !passwordOk) {
-    recordFailure(rateKey, LOGIN_OPTS);
+    await recordFailureAsync(accountKey, LOGIN_OPTS);
+    if (ipKey) await recordFailureAsync(ipKey, LOGIN_IP_OPTS);
     redirect("/auth/sign-in?error=1");
   }
 
-  clearAttempts(rateKey);
+  // Only the account budget is cleared: one successful sign-in must not wipe
+  // the spraying counter an attacker built up against other accounts.
+  await clearAttemptsAsync(accountKey);
   await createSession({
     id: user.id,
     tenantId: user.tenant_id,

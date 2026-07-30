@@ -106,6 +106,27 @@
       "when": 1785238659813,
       "tag": "0014_lively_maddog",
       "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1785250000000,
+      "tag": "0015_availability_yes_followup",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1785400000000,
+      "tag": "0016_entity_kind_user",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1785400001000,
+      "tag": "0017_rate_limit_buckets",
+      "breakpoints": true
     }
   ]
 }

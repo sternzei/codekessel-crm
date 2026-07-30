@@ -11,12 +11,11 @@ import { createdAt, tenantId, updatedAt } from "./helpers";
 import { tasks } from "./tasks";
 import { users } from "./users";
 
-// The approval-before-send queue ("Postausgang"). Every system-initiated
-// outbound message (routing engine on task creation, the reminder worker, and
-// the manual internal "send" action) writes ONE pending row here instead of
-// dispatching. Nothing reaches the WhatsApp/email provider until a signed-in
-// user explicitly approves the row — the approve action performs the actual
-// adapter dispatch and records the provider message id + receipts.
+// The approval-before-send queue ("Postausgang"). System-initiated outbound
+// messages (routing engine on task creation, reminder worker) write ONE pending
+// row here instead of dispatching — a manager/admin must approve. Consultant
+// "WhatsApp senden" clicks use the manual dispatch path (same table, already
+// claimed as sending) because the click itself is the human approval.
 //
 // The row snapshots exactly what will be sent (rendered body/subject, resolved
 // recipient, template key, and the interpolation variables incl. the magic-link
