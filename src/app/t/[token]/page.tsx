@@ -11,6 +11,7 @@ import { StartAptitudeTest } from "@/components/task-pages/participant/StartApti
 import { UploadDocuments } from "@/components/task-pages/participant/UploadDocuments";
 import { ConfirmSubmission } from "@/components/task-pages/employer/ConfirmSubmission";
 import { SetupAssistant } from "@/components/task-pages/employer/SetupAssistant";
+import { LegalLinks } from "@/components/legal/legal-links";
 import {
   loadTokenContext,
   verifyTokenSignature,
@@ -194,7 +195,12 @@ export default async function TokenTaskPage({
     );
   }
 
-  return <div className="task-viewport">{content}</div>;
+  return (
+    <div className="task-viewport">
+      {content}
+      <LegalLinks note={t("dataNotice")} />
+    </div>
+  );
 }
 
 function Message({
@@ -213,6 +219,7 @@ function Message({
         <h1>{title}</h1>
         <p className="intro">{body}</p>
       </main>
+      <LegalLinks />
     </div>
   );
 }

@@ -66,11 +66,22 @@ button {
   font: inherit;
 }
 
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
 /* ---- Internal console shell -------------------------------------------- */
 
 .shell {
   display: grid;
-  grid-template-columns: 232px 1fr;
+  grid-template-columns: 232px minmax(0, 1fr);
   min-height: 100dvh;
 }
 
@@ -198,6 +209,19 @@ button {
   color: var(--color-sidebar-muted);
 }
 
+.sidebar-legal {
+  display: flex;
+  gap: var(--space-3);
+}
+
+.sidebar-legal a {
+  color: var(--color-sidebar-muted);
+}
+
+.sidebar-legal a:hover {
+  color: var(--color-sidebar-text);
+}
+
 .sidebar-footer strong {
   display: block;
   color: var(--color-sidebar-text);
@@ -208,6 +232,10 @@ button {
 .main {
   padding: var(--space-8) var(--space-8) var(--space-12);
   max-width: 1200px;
+  /* A grid item's automatic minimum is min-content, so a wide table would push
+     the 1fr track past the viewport and scroll the whole document sideways
+     instead of scrolling inside .pipeline-table-wrap. */
+  min-width: 0;
 }
 
 @media (max-width: 720px) {
@@ -238,7 +266,6 @@ button {
   }
 
   .main {
-    min-width: 0;
     padding: var(--space-4);
   }
 }
@@ -418,8 +445,11 @@ a:focus-visible {
 
 .task-viewport {
   min-height: 100dvh;
-  display: grid;
-  place-items: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-6);
   padding: var(--space-4);
   background:
     radial-gradient(80rem 40rem at 110% -10%, var(--color-accent-soft), transparent 60%),
@@ -492,12 +522,92 @@ a:focus-visible {
   background: var(--color-accent-soft);
 }
 
+/* ---- Public legal pages -------------------------------------------------- */
+
+.legal-viewport {
+  min-height: 100dvh;
+  padding: var(--space-8) var(--space-4) var(--space-12);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-6);
+  background:
+    radial-gradient(80rem 40rem at 110% -10%, var(--color-accent-soft), transparent 60%),
+    var(--color-bg);
+}
+
+.legal-masthead {
+  width: 100%;
+  max-width: 46rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+
+.legal-wordmark {
+  width: auto;
+  height: 28px;
+}
+
+.legal-nav {
+  display: flex;
+  gap: var(--space-4);
+  font-size: var(--text-sm);
+}
+
+.legal-card {
+  width: 100%;
+  max-width: 46rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+  padding: var(--space-8) var(--space-6);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+}
+
+.legal-card h1 {
+  font-size: var(--text-xl);
+}
+
+.legal-card h2 {
+  font-size: var(--text-base);
+  margin-bottom: var(--space-2);
+}
+
+.legal-card p {
+  color: var(--color-ink-soft);
+  font-size: var(--text-sm);
+}
+
+.legal-lead {
+  margin-top: calc(var(--space-4) * -1);
+  color: var(--color-ink-faint);
+}
+
+/* Footnote linking to the legal pages from data-collecting surfaces. */
+.legal-links {
+  display: flex;
+  gap: var(--space-4);
+  justify-content: center;
+  flex-wrap: wrap;
+  font-size: var(--text-xs);
+  color: var(--color-ink-faint);
+}
+
 /* ---- Auth ---------------------------------------------------------------- */
 
 .auth-viewport {
   min-height: 100dvh;
-  display: grid;
-  place-items: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-6);
   padding: var(--space-4);
   background:
     radial-gradient(70rem 35rem at -10% 110%, var(--color-accent-soft), transparent 55%),
@@ -515,6 +625,12 @@ a:focus-visible {
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
+}
+
+.auth-wordmark {
+  width: auto;
+  height: 24px;
+  margin-bottom: var(--space-4);
 }
 
 .field {

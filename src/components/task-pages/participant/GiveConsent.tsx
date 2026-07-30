@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { giveConsent } from "@/modules/participants/external-actions";
 
 export function GiveConsent({
@@ -13,8 +14,7 @@ export function GiveConsent({
       <h1>Einwilligungen</h1>
       <p className="intro">
         Hallo {participantFirstName}, damit wir Ihren Förderantrag vorbereiten
-        dürfen, benötigen wir Ihre Einwilligung. (PLATZHALTER — finale
-        Rechtstexte folgen nach juristischer Prüfung.)
+        dürfen, benötigen wir Ihre Einwilligung.
       </p>
       <form
         action={giveConsent}
@@ -25,16 +25,19 @@ export function GiveConsent({
           <label className="choice">
             <input type="checkbox" name="privacy" required />
             <span>
-              Ich habe die <strong>Datenschutzerklärung</strong> gelesen und
-              willige in die Verarbeitung meiner Daten zur Antragsvorbereitung
-              ein. * (PLATZHALTER)
+              Ich habe die{" "}
+              <Link href="/datenschutz" target="_blank">
+                Datenschutzerklärung
+              </Link>{" "}
+              gelesen und willige in die Verarbeitung meiner Daten zur
+              Antragsvorbereitung ein. *
             </span>
           </label>
           <label className="choice">
             <input type="checkbox" name="contact" required />
             <span>
               Ich willige ein, zu diesem Vorgang <strong>kontaktiert</strong>{" "}
-              zu werden (Telefon, E-Mail). * (PLATZHALTER)
+              zu werden (Telefon, E-Mail). *
             </span>
           </label>
           <label className="choice">

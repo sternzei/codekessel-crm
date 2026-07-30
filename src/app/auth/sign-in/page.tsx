@@ -1,5 +1,7 @@
+import Image from "next/image";
 import { getTranslations } from "next-intl/server";
 import { redirect } from "next/navigation";
+import { LegalLinks } from "@/components/legal/legal-links";
 import { login } from "@/modules/auth/actions";
 import { getSession } from "@/modules/auth/session";
 
@@ -18,6 +20,15 @@ export default async function SignInPage({
     <div className="auth-viewport">
       <main className="auth-card">
         <header>
+          <Image
+            src="/brand/codekessel-wordmark.png"
+            alt="CodeKessel"
+            width={1024}
+            height={298}
+            className="auth-wordmark"
+            priority
+            unoptimized
+          />
           <h1>{t("title")}</h1>
           <p style={{ marginTop: "var(--space-2)", color: "var(--color-ink-faint)", fontSize: "var(--text-sm)" }}>
             {t("subtitle")}
@@ -47,6 +58,7 @@ export default async function SignInPage({
           </button>
         </form>
       </main>
+      <LegalLinks />
     </div>
   );
 }

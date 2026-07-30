@@ -61,6 +61,23 @@ const envSchema = z.object({
   // Resend email. Optional: without both vars the email adapter stays mock.
   RESEND_API_KEY: z.string().optional(),
   RESEND_FROM_EMAIL: z.string().optional(),
+  // Operator identity for the public Impressum (§5 DDG) and the privacy notice
+  // (Art. 13 DSGVO). Participants reach /t/[token] pages that collect
+  // SV-Nummer, IBAN and signatures, so these pages are mandatory — the first
+  // three are required in production.
+  LEGAL_PROVIDER_NAME: z.string().optional(),
+  // Street, postal code and city; use "\n" to break lines.
+  LEGAL_PROVIDER_ADDRESS: z.string().optional(),
+  LEGAL_PROVIDER_EMAIL: z.string().email().optional(),
+  LEGAL_PROVIDER_PHONE: z.string().optional(),
+  // Managing director / board — required for legal entities (§5 Abs. 1 Nr. 1).
+  LEGAL_PROVIDER_REPRESENTATIVE: z.string().optional(),
+  // e.g. "Amtsgericht München, HRB 123456".
+  LEGAL_REGISTER_ENTRY: z.string().optional(),
+  LEGAL_VAT_ID: z.string().optional(),
+  LEGAL_SUPERVISORY_AUTHORITY: z.string().optional(),
+  // Data protection officer, if one is appointed (Art. 37 DSGVO).
+  LEGAL_PRIVACY_CONTACT: z.string().optional(),
 }).superRefine((value, ctx) => {
   // The S3 driver is useless without a bucket — fail fast at startup rather
   // than on the first upload.
@@ -125,6 +142,21 @@ const envSchema = z.object({
         "Production behind a reverse proxy must set TRUST_PROXY=true (login rate limits)",
     });
   }
+  // Serving /impressum or /datenschutz with blanks is worse than not shipping:
+  // participants are asked for bank details on a page with no identifiable
+  // operator behind it.
+  for (const key of [
+    "LEGAL_PROVIDER_NAME",
+    "LEGAL_PROVIDER_ADDRESS",
+    "LEGAL_PROVIDER_EMAIL",
+  ] as const) {
+    if (value[key]) continue;
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: [key],
+      message: `Production requires ${key} for the Impressum (§5 DDG) and the privacy notice`,
+    });
+  }
 });
 
 // Fail fast at startup: a missing secret must never surface as a runtime 500.
@@ -158,6 +190,15 @@ export const env = envSchema.parse({
   TRUST_PROXY: process.env.TRUST_PROXY,
   RESEND_API_KEY: process.env.RESEND_API_KEY,
   RESEND_FROM_EMAIL: process.env.RESEND_FROM_EMAIL,
+  LEGAL_PROVIDER_NAME: process.env.LEGAL_PROVIDER_NAME,
+  LEGAL_PROVIDER_ADDRESS: process.env.LEGAL_PROVIDER_ADDRESS,
+  LEGAL_PROVIDER_EMAIL: process.env.LEGAL_PROVIDER_EMAIL,
+  LEGAL_PROVIDER_PHONE: process.env.LEGAL_PROVIDER_PHONE,
+  LEGAL_PROVIDER_REPRESENTATIVE: process.env.LEGAL_PROVIDER_REPRESENTATIVE,
+  LEGAL_REGISTER_ENTRY: process.env.LEGAL_REGISTER_ENTRY,
+  LEGAL_VAT_ID: process.env.LEGAL_VAT_ID,
+  LEGAL_SUPERVISORY_AUTHORITY: process.env.LEGAL_SUPERVISORY_AUTHORITY,
+  LEGAL_PRIVACY_CONTACT: process.env.LEGAL_PRIVACY_CONTACT,
 });
 
 if (env.AUTH_SECRET === env.TOKEN_SECRET) {

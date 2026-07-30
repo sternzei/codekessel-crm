@@ -84,6 +84,10 @@ export default async function InternalLayout({
               {t("signOut")}
             </button>
           </form>
+          <div className="sidebar-legal">
+            <Link href="/impressum">Impressum</Link>
+            <Link href="/datenschutz">Datenschutz</Link>
+          </div>
         </div>
       </aside>
       <main className="main">{children}</main>
