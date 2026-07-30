@@ -4,7 +4,10 @@ import { getTranslations } from "next-intl/server";
 import { redirect } from "next/navigation";
 import { SidebarNav } from "@/components/internal/SidebarNav";
 import { logout } from "@/modules/auth/actions";
-import { getRoleLabel } from "@/modules/auth/authorization";
+import {
+  canManageUsers,
+  getRoleLabel,
+} from "@/modules/auth/authorization";
 import { getSession } from "@/modules/auth/session";
 
 export default async function InternalLayout({
@@ -29,6 +32,9 @@ export default async function InternalLayout({
     ...(session.role === "admin"
       ? [{ href: "/leads/import", label: "Register-Import" }]
       : []),
+    ...(canManageUsers(session.role)
+      ? [{ href: "/users", label: t("users") }]
+      : []),
     { href: "/hilfe", label: t("help") },
   ];
 
@@ -38,7 +44,7 @@ export default async function InternalLayout({
         <Link
           href="/pipeline"
           className="sidebar-brand"
-          aria-label="CodeKessel – QCG Antragsplattform"
+          aria-label="CodeKessel – Antragsplattform"
         >
           <span className="sidebar-brand-atmosphere" aria-hidden="true">
             <Image
@@ -60,7 +66,7 @@ export default async function InternalLayout({
               priority
               unoptimized
             />
-            <small>{tApp("name")}</small>
+            <small className="sidebar-brand-tagline">{tApp("tagline")}</small>
           </span>
         </Link>
         <SidebarNav items={items} />

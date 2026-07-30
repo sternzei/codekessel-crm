@@ -4,6 +4,9 @@ import {
   canApproveCloudMessage,
   canAssignParticipant,
   canAccessParticipant,
+  canAssignUserRole,
+  canManageUsers,
+  canMutateExistingUser,
   getParticipantWriteDecision,
   getTaskWriteDecision,
   normalizeParticipantFilter,
@@ -143,5 +146,56 @@ test("only manager or admin may approve and creators cannot self-approve", () =>
       createdByUserId: null,
     }),
     "allowed",
+  );
+});
+
+test("only manager or admin may manage tenant users", () => {
+  assert.equal(canManageUsers("consultant"), false);
+  assert.equal(canManageUsers("manager"), true);
+  assert.equal(canManageUsers("admin"), true);
+});
+
+test("managers may create consultants and managers but not admins", () => {
+  assert.equal(
+    canAssignUserRole({ actorRole: "manager", targetRole: "consultant" }),
+    "allowed",
+  );
+  assert.equal(
+    canAssignUserRole({ actorRole: "manager", targetRole: "manager" }),
+    "allowed",
+  );
+  assert.equal(
+    canAssignUserRole({ actorRole: "manager", targetRole: "admin" }),
+    "forbidden_admin_target",
+  );
+  assert.equal(
+    canAssignUserRole({ actorRole: "admin", targetRole: "admin" }),
+    "allowed",
+  );
+  assert.equal(
+    canAssignUserRole({ actorRole: "consultant", targetRole: "consultant" }),
+    "forbidden_role",
+  );
+});
+
+test("managers cannot mutate existing admin users", () => {
+  assert.equal(
+    canMutateExistingUser({ actorRole: "manager", currentRole: "consultant" }),
+    "allowed",
+  );
+  assert.equal(
+    canMutateExistingUser({ actorRole: "manager", currentRole: "admin" }),
+    "forbidden_admin_target",
+  );
+  assert.equal(
+    canMutateExistingUser({ actorRole: "admin", currentRole: "admin" }),
+    "allowed",
+  );
+  assert.equal(
+    canMutateExistingUser({
+      actorRole: "consultant",
+      currentRole: "consultant",
+    }),
+    "forbidden_role",
   );
 });

@@ -21,6 +21,55 @@ export type WriteAccessDecision = "allowed" | "must_claim" | "forbidden";
 export const canManageTenantRecords = (role: AppRole): boolean =>
   role === "manager" || role === "admin";
 
+/**
+ * Tenant user administration (create / role / active / password reset).
+ * Managers may manage consultants and managers; only admins may create or
+ * promote admins (see canAssignUserRole).
+ */
+export const canManageUsers = (role: AppRole): boolean =>
+  canManageTenantRecords(role);
+
+export type UserRoleDecision =
+  | "allowed"
+  | "forbidden_role"
+  | "forbidden_admin_target";
+
+/**
+ * Whether `actor` may set a user to `targetRole` (create or role change).
+ * Consultants are never allowed; managers cannot create/promote admins.
+ */
+export const canAssignUserRole = ({
+  actorRole,
+  targetRole,
+}: {
+  readonly actorRole: AppRole;
+  readonly targetRole: AppRole;
+}): UserRoleDecision => {
+  if (!canManageUsers(actorRole)) return "forbidden_role";
+  if (targetRole === "admin" && actorRole !== "admin") {
+    return "forbidden_admin_target";
+  }
+  return "allowed";
+};
+
+/**
+ * Whether `actor` may mutate an existing user who currently has `currentRole`
+ * (deactivate, reset password, demote). Managers cannot touch admins.
+ */
+export const canMutateExistingUser = ({
+  actorRole,
+  currentRole,
+}: {
+  readonly actorRole: AppRole;
+  readonly currentRole: AppRole;
+}): UserRoleDecision => {
+  if (!canManageUsers(actorRole)) return "forbidden_role";
+  if (currentRole === "admin" && actorRole !== "admin") {
+    return "forbidden_admin_target";
+  }
+  return "allowed";
+};
+
 export const getRoleLabel = (role: AppRole): string => {
   if (role === "manager") return "Teamleitung";
   if (role === "admin") return "Administration";
