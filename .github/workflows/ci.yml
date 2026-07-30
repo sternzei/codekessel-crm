@@ -54,6 +54,9 @@ jobs:
           APP_BASE_URL=http://localhost:3000
           STORAGE_DRIVER=local
           RATE_LIMIT_DRIVER=memory
+          LEGAL_PROVIDER_NAME=CI Demo GmbH
+          LEGAL_PROVIDER_ADDRESS=Musterstraße 1\n80331 München
+          LEGAL_PROVIDER_EMAIL=datenschutz@example.com
           EOF
           # Strip accidental leading whitespace from the heredoc body.
           sed -i 's/^[[:space:]]*//' .env.local
@@ -64,8 +67,11 @@ jobs:
       - name: Lint
         run: pnpm lint
 
-      - name: Unit tests
-        run: pnpm test:unit
+      # Fails below 80% lines/branches/functions. Node only instruments modules
+      # a test actually loads, so this guards the covered surface — the server
+      # actions and RLS paths are covered by the Playwright run below.
+      - name: Unit tests with coverage gate
+        run: pnpm test:coverage
 
       - name: Migrate and seed
         run: pnpm db:migrate && pnpm db:seed
@@ -85,6 +91,9 @@ jobs:
           MIGRATION_DATABASE_URL: postgres://postgres:postgres@localhost:5433/qcg
           APP_BASE_URL: http://localhost:3000
           STORAGE_DRIVER: local
+          LEGAL_PROVIDER_NAME: CI Demo GmbH
+          LEGAL_PROVIDER_ADDRESS: Musterstraße 1\n80331 München
+          LEGAL_PROVIDER_EMAIL: datenschutz@example.com
 
       - name: Start app
         run: |
@@ -107,6 +116,9 @@ jobs:
           MIGRATION_DATABASE_URL: postgres://postgres:postgres@localhost:5433/qcg
           APP_BASE_URL: http://localhost:3000
           STORAGE_DRIVER: local
+          LEGAL_PROVIDER_NAME: CI Demo GmbH
+          LEGAL_PROVIDER_ADDRESS: Musterstraße 1\n80331 München
+          LEGAL_PROVIDER_EMAIL: datenschutz@example.com
           RATE_LIMIT_DRIVER: postgres
 
       - name: Playwright e2e

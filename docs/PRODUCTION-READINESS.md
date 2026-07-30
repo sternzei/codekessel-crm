@@ -253,6 +253,57 @@ Status of the P1 findings closed since:
   shipped dev placeholders, and `TRUST_PROXY` / `RESEND_API_KEY` /
   `RESEND_FROM_EMAIL` are now part of the central schema.
 
+### 2026-07-30 UX / legal / operational review — resolutions
+
+Closed:
+
+- **Placeholder text could reach participants.** `renderTemplate` no longer
+  improvises copy: a missing `(key, channel)` row or an unresolved `{{var}}`
+  throws `TemplateRenderError`. `src/modules/messaging/catalog.ts` is the single
+  source of truth for every key the app can request; the seed and migration
+  `0018` write from it, `tests/unit/message-catalog.test.ts` asserts coverage and
+  bans placeholder wording. Callers degrade explicitly — routing logs
+  `message_template_missing` to the activity log, the manual WhatsApp action
+  redirects with `wa=no_template`.
+- **No Impressum / Datenschutzerklärung.** `(legal)/impressum` and
+  `(legal)/datenschutz` render from `LEGAL_*` env (required in production:
+  `LEGAL_PROVIDER_NAME`, `LEGAL_PROVIDER_ADDRESS`, `LEGAL_PROVIDER_EMAIL`), and
+  are linked from `/t/[token]`, the sign-in page, the internal sidebar, and the
+  consent checkbox.
+- **Sidebar brand had `padding: 0`.** `--space-5` was referenced but never
+  defined, so the shorthand was dropped. Defined in `tokens.css`.
+- **Document scrolled sideways below 1200px.** `.main` gets `min-width: 0` in the
+  base rule and the shell grid uses `minmax(0, 1fr)`. Verified: at 1024/900/768
+  `document.scrollWidth === clientWidth` on `/pipeline`.
+- **No `prefers-reduced-motion`.** Added a global reduce block in `global.css`.
+- **Grammar / branding polish.** `taskPage.availability.intro` now flows after
+  the greeting; the sign-in page carries the wordmark.
+- **Prod image shipped the dev toolchain (P1-8 ops).** `Dockerfile` installs a
+  separate `deps-prod` stage (`--prod`) and the runtime copies from it.
+- **Worker ran TypeScript through `tsx`.** `pnpm build` now bundles it with
+  esbuild to `dist/worker.mjs`; `Procfile` and compose run `node dist/worker.mjs`.
+  `drizzle-kit` + `dotenv` moved to `dependencies` so `release` migrations work
+  under `--prod`.
+- **No error transport.** `logger` emits JSON lines, honours `LOG_LEVEL`, and
+  POSTs `error` events to `ERROR_WEBHOOK_URL` when set. `(internal)/error.tsx`
+  shows the Next digest so a screenshot maps to a log line.
+- **Health was only `select 1`.** `/api/health` stays a shallow liveness probe;
+  the new `GET /api/ready` checks database, storage round-trip, worker lag
+  (5 min tolerance) and stalled outbox rows, returning 503 on failure.
+- **CI had no coverage gate.** `pnpm test:coverage` enforces 80% lines/branches/
+  functions and runs in CI in place of `test:unit`.
+
+Deliberately open (design work, tracked separately):
+
+- **Pipeline/Reports hierarchy.** ~35 numbers before the first lead, the "Funnel"
+  is a non-cumulative status bar chart, and `/reports` repeats the same snapshot
+  with no time series. Needs a design pass, not a patch.
+- **Inline styles bypass the token system** (`leads/[id]` ~54, `employers` 18,
+  `leads/import` 16) and there is still no dark mode.
+- **Remaining polish:** `/employers` disclosure panels read as detached from
+  their card, `/tasks` badge/button alignment, lead-detail contact block is
+  demoted below the title, BA availability form repeats "von/bis" 7×.
+
 ### Required production environment
 
 Validated centrally in `src/lib/env.ts`; see `.env.example` for the full list.
@@ -305,8 +356,8 @@ docker compose --profile app up -d --build   # db + web + worker
 curl -fsS localhost:3000/api/health           # -> {"status":"ok"}
 ```
 
-- `web` runs migrations then `node server.js`; `worker` runs
-  `tsx src/jobs/worker.ts --loop`; both `restart: unless-stopped`.
+- `web` runs migrations then `node server.js`; `worker` runs the pre-bundled
+  `node dist/worker.mjs --loop`; both `restart: unless-stopped`.
 - Compose app profile mounts named volume `qcg-uploads` → `/app/var` and sets
   `ALLOW_LOCAL_STORAGE_IN_PROD=true` so PDFs survive container restarts.
 - `web` has a Docker healthcheck on `/api/health`; `worker` waits until web is healthy.
@@ -323,7 +374,10 @@ under supervision — a dead worker silently stops all automated follow-up.
 
 ### Monitoring hooks
 
-- Web readiness: `GET /api/health` (200 ok / 503 on DB failure; unauthenticated,
-  info-light).
+- Web liveness: `GET /api/health` (200 ok / 503 on DB failure; unauthenticated,
+  info-light) — use this for the container healthcheck and load-balancer probe.
+- Web readiness: `GET /api/ready` (database, storage, worker lag, outbox stall;
+  200 when all `ok`, 503 on `degraded`/`failed`) — use this for alerting, not for
+  restart decisions.
 - Worker liveness: a `worker heartbeat` log line (~once/minute) plus per-tick
   `worker tick` lines — alert if no heartbeat within a few minutes.

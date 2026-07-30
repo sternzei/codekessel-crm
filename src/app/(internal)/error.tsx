@@ -3,6 +3,7 @@
 import { useTranslations } from "next-intl";
 
 export default function InternalError({
+  error,
   reset,
 }: {
   readonly error: Error & { digest?: string };
@@ -39,6 +40,13 @@ export default function InternalError({
       >
         {t("retry")}
       </button>
+      {/* The digest is the only handle that ties this screen to a server log
+          line, so support can find the incident from a screenshot. */}
+      {error.digest ? (
+        <p className="meta" style={{ marginTop: "var(--space-4)" }}>
+          {t("reference", { digest: error.digest })}
+        </p>
+      ) : null}
     </div>
   );
 }

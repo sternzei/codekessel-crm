@@ -59,6 +59,17 @@ services:
       S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
       S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-}
       S3_KEY_PREFIX: ${S3_KEY_PREFIX:-}
+      # Required in production: /impressum and /datenschutz are public pages
+      # participants are pointed at before they hand over IBAN + signature.
+      LEGAL_PROVIDER_NAME: ${LEGAL_PROVIDER_NAME:-QCG Demo GmbH}
+      LEGAL_PROVIDER_ADDRESS: ${LEGAL_PROVIDER_ADDRESS:-Musterstraße 1\n80331 München}
+      LEGAL_PROVIDER_EMAIL: ${LEGAL_PROVIDER_EMAIL:-datenschutz@example.com}
+      LEGAL_PROVIDER_PHONE: ${LEGAL_PROVIDER_PHONE:-}
+      LEGAL_PROVIDER_REPRESENTATIVE: ${LEGAL_PROVIDER_REPRESENTATIVE:-}
+      LEGAL_REGISTER_ENTRY: ${LEGAL_REGISTER_ENTRY:-}
+      LEGAL_VAT_ID: ${LEGAL_VAT_ID:-}
+      LEGAL_SUPERVISORY_AUTHORITY: ${LEGAL_SUPERVISORY_AUTHORITY:-}
+      LEGAL_PRIVACY_CONTACT: ${LEGAL_PRIVACY_CONTACT:-}
     volumes:
       - qcg-uploads:/app/var
     ports:
@@ -106,9 +117,20 @@ services:
       S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
       S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-}
       S3_KEY_PREFIX: ${S3_KEY_PREFIX:-}
+      # Required in production: /impressum and /datenschutz are public pages
+      # participants are pointed at before they hand over IBAN + signature.
+      LEGAL_PROVIDER_NAME: ${LEGAL_PROVIDER_NAME:-QCG Demo GmbH}
+      LEGAL_PROVIDER_ADDRESS: ${LEGAL_PROVIDER_ADDRESS:-Musterstraße 1\n80331 München}
+      LEGAL_PROVIDER_EMAIL: ${LEGAL_PROVIDER_EMAIL:-datenschutz@example.com}
+      LEGAL_PROVIDER_PHONE: ${LEGAL_PROVIDER_PHONE:-}
+      LEGAL_PROVIDER_REPRESENTATIVE: ${LEGAL_PROVIDER_REPRESENTATIVE:-}
+      LEGAL_REGISTER_ENTRY: ${LEGAL_REGISTER_ENTRY:-}
+      LEGAL_VAT_ID: ${LEGAL_VAT_ID:-}
+      LEGAL_SUPERVISORY_AUTHORITY: ${LEGAL_SUPERVISORY_AUTHORITY:-}
+      LEGAL_PRIVACY_CONTACT: ${LEGAL_PRIVACY_CONTACT:-}
     volumes:
       - qcg-uploads:/app/var
-    command: node --import tsx src/jobs/worker.ts --loop
+    command: node dist/worker.mjs --loop
 
 volumes:
   qcg-pgdata:

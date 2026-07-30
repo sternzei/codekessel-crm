@@ -2,11 +2,11 @@
 
 # Multi-stage production image. It serves BOTH tiers from one artifact:
 #   * web    → the Next.js standalone server  (node server.js)
-#   * worker → the reminder/escalation loop    (tsx src/jobs/worker.ts --loop)
+#   * worker → the reminder/escalation loop    (node dist/worker.mjs --loop)
 #   * migrate→ drizzle-kit migrate             (one-shot, before web starts)
-# The web tier uses Next's `output: "standalone"` bundle; the worker + migrate
-# steps run TypeScript directly via tsx, so the runtime image also carries the
-# full node_modules + source (small trade-off for a single coherent image).
+# The web tier uses Next's `output: "standalone"` bundle and the worker is
+# pre-compiled at build time, so the runtime image carries neither the sources
+# nor the dev toolchain (no eslint / typescript / tailwind / playwright).
 
 ARG NODE_VERSION=22-alpine
 
@@ -14,10 +14,19 @@ ARG NODE_VERSION=22-alpine
 FROM node:${NODE_VERSION} AS deps
 WORKDIR /app
 RUN corepack enable
-COPY package.json pnpm-lock.yaml ./
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
 
-# --- build: compile the Next.js standalone bundle ---------------------------
+# --- deps-prod: runtime dependencies only -----------------------------------
+# What the worker (bundled, `--packages=external`) and `drizzle-kit migrate`
+# need at runtime. The build toolchain never reaches the final image.
+FROM node:${NODE_VERSION} AS deps-prod
+WORKDIR /app
+RUN corepack enable
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+RUN pnpm install --frozen-lockfile --prod
+
+# --- build: compile the Next.js standalone bundle + the worker --------------
 FROM node:${NODE_VERSION} AS build
 WORKDIR /app
 RUN corepack enable
@@ -31,12 +40,14 @@ ENV DATABASE_URL=postgres://build:build@localhost:5432/build
 ENV MIGRATION_DATABASE_URL=postgres://build:build@localhost:5432/build
 ENV AUTH_SECRET=build-only-placeholder-secret-value
 ENV TOKEN_SECRET=build-only-different-placeholder-secret
+ENV LEGAL_PROVIDER_NAME=build-only
+ENV LEGAL_PROVIDER_ADDRESS=build-only
+ENV LEGAL_PROVIDER_EMAIL=build-only@example.com
 RUN pnpm build
 
-# --- runner: minimal-ish runtime image --------------------------------------
+# --- runner: minimal runtime image ------------------------------------------
 FROM node:${NODE_VERSION} AS runner
 WORKDIR /app
-RUN corepack enable
 ENV NODE_ENV=production
 ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
@@ -46,18 +57,14 @@ COPY --from=build /app/.next/standalone ./
 COPY --from=build /app/.next/static ./.next/static
 COPY --from=build /app/public ./public
 
-# 2) Toolchain + sources for the worker and migrations (not part of the Next
-#    build). The full node_modules is a superset of the standalone's trimmed
-#    one, so the standalone server keeps working after this overlay.
-COPY --from=deps /app/node_modules ./node_modules
-COPY --from=build /app/src ./src
+# 2) Runtime deps for the worker and migrations. The standalone server brings
+#    its own trimmed node_modules; this overlay is a superset of it.
+COPY --from=deps-prod /app/node_modules ./node_modules
+COPY --from=build /app/dist ./dist
 COPY --from=build /app/drizzle ./drizzle
 COPY --from=build /app/templates ./templates
 COPY --from=build /app/package.json ./package.json
-COPY --from=build /app/pnpm-lock.yaml ./pnpm-lock.yaml
-COPY --from=build /app/tsconfig.json ./tsconfig.json
 COPY --from=build /app/drizzle.config.ts ./drizzle.config.ts
-COPY --from=build /app/next.config.ts ./next.config.ts
 
 EXPOSE 3000
 
