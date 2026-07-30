@@ -7,6 +7,21 @@ on:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: qcg
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d qcg"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -32,13 +47,16 @@ jobs:
       - name: Create test env
         run: |
           cat > .env.local <<'EOF'
-          DATABASE_URL=postgres://qcg_app:pw@localhost:5433/qcg
+          DATABASE_URL=postgres://qcg_app:qcg_app_dev_pw@localhost:5433/qcg
           MIGRATION_DATABASE_URL=postgres://postgres:postgres@localhost:5433/qcg
           AUTH_SECRET=ci-only-auth-secret-value-1234567890
           TOKEN_SECRET=ci-only-token-secret-value-1234567890
           APP_BASE_URL=http://localhost:3000
           STORAGE_DRIVER=local
+          RATE_LIMIT_DRIVER=memory
           EOF
+          # Strip accidental leading whitespace from the heredoc body.
+          sed -i 's/^[[:space:]]*//' .env.local
 
       - name: Type check
         run: npx tsc --noEmit
@@ -48,3 +66,48 @@ jobs:
 
       - name: Unit tests
         run: pnpm test:unit
+
+      - name: Migrate and seed
+        run: pnpm db:migrate && pnpm db:seed
+
+      - name: Install Playwright browsers
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Build app
+        run: pnpm build
+        env:
+          NODE_ENV: production
+          ALLOW_LOCAL_STORAGE_IN_PROD: "true"
+          TRUST_PROXY: "true"
+          AUTH_SECRET: ci-only-auth-secret-value-1234567890
+          TOKEN_SECRET: ci-only-token-secret-value-1234567890
+          DATABASE_URL: postgres://qcg_app:qcg_app_dev_pw@localhost:5433/qcg
+          MIGRATION_DATABASE_URL: postgres://postgres:postgres@localhost:5433/qcg
+          APP_BASE_URL: http://localhost:3000
+          STORAGE_DRIVER: local
+
+      - name: Start app
+        run: |
+          pnpm start &
+          for i in $(seq 1 60); do
+            if curl -fsS http://localhost:3000/api/health >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "App failed to become healthy" >&2
+          exit 1
+        env:
+          NODE_ENV: production
+          ALLOW_LOCAL_STORAGE_IN_PROD: "true"
+          TRUST_PROXY: "true"
+          AUTH_SECRET: ci-only-auth-secret-value-1234567890
+          TOKEN_SECRET: ci-only-token-secret-value-1234567890
+          DATABASE_URL: postgres://qcg_app:qcg_app_dev_pw@localhost:5433/qcg
+          MIGRATION_DATABASE_URL: postgres://postgres:postgres@localhost:5433/qcg
+          APP_BASE_URL: http://localhost:3000
+          STORAGE_DRIVER: local
+          RATE_LIMIT_DRIVER: postgres
+
+      - name: Playwright e2e
+        run: pnpm test:e2e

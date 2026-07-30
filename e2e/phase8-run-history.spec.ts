@@ -1,4 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import type { Page } from "@playwright/test";
+import { expect, test } from "./fixtures";
 import { execSync } from "node:child_process";
 
 // Phase 8 smoke: pipeline filter URL-persistence, the register import happy

@@ -39,19 +39,27 @@ callback carries no tenant).
 
 ## 2. Two ways WhatsApp reaches a recipient
 
-1. **Click-to-chat (`wa.me`) — manual, human-sent.** `click-to-chat.ts`
-   (`toWaMeNumber` / `buildWaMeUrl`) + `buildWhatsAppClickToChat` build a
-   deep link with the message prefilled; the consultant sends it from **their
-   own** WhatsApp. This never dispatches via the API and is **not** gated —
-   opening a draft is inherently a human action. It is audited only as
-   `whatsapp_click_to_chat_opened` (we can prove it was opened, never delivered).
-2. **API dispatch — automated, gated.** Everything that would send via the
-   Cloud API now goes through the approval gate below.
+**Status (2026-07-30):** Meta Cloud API setup is **parked**. Until
+`WHATSAPP_ACCESS_TOKEN` + `WHATSAPP_PHONE_NUMBER_ID` are set, the product uses
+the interim path below and never reports a mock Cloud send as “versendet”.
+
+1. **Click-to-chat (`wa.me`) — interim primary.** Tasks UI shows
+   **WhatsApp öffnen** when Cloud API is not live. Opens a prefilled draft on
+   the consultant’s own WhatsApp via `buildWhatsAppClickToChat`. Manual send on
+   the device.
+2. **API dispatch — business number (future / when LIVE).** Uses
+   `WHATSAPP_SENDER_NUMBER` / Cloud API. Immediate dispatch when credentials
+   exist:
+   - Manual task action (`sendTaskWhatsApp` / **WhatsApp senden**)
+   - Routing follow-ups + reminder worker (`enqueueAndDispatchOnHandle`)
+   Without credentials, `sendTaskWhatsApp` redirects with `wa=cloud_unavailable`
+   instead of faking success.
 
 ## 3. The approval-before-send gate
 
-**Requirement:** no outbound message is dispatched by the system without an
-explicit human approval action in the UI.
+**Requirement:** no *automated* outbound message is dispatched without an
+explicit human approval action in the UI. A consultant clicking
+**WhatsApp senden** on a task counts as that action.
 
 ### Lifecycle
 
@@ -82,25 +90,22 @@ It is distinct from `message_deliveries`, which tracks post-dispatch provider
 delivery receipts. On a successful approval-dispatch the provider id is mirrored
 into `message_deliveries` so the webhook reconciler works unchanged.
 
-### Every system send path enqueues instead of sending
+### Workflow sends dispatch immediately
 
-`enqueueTaskMessage` (`src/modules/messaging/outbox.ts`) renders the template
-and writes **one** `pending_approval` row — it dispatches nothing. All three
-system paths now call it:
+| Path | Behaviour |
+| ---- | --------- |
+| Routing engine (`routing/engine.ts` → `dispatchExternal`) | `enqueueAndDispatchOnHandle` — immediate send |
+| Reminder worker (`jobs/worker.ts`) | `enqueueAndDispatchOnHandle` — immediate send |
+| Manual internal action (`tasks/actions.ts sendTaskWhatsApp`) | `enqueueAndDispatchManual` — immediate send |
 
-| Path                                             | Before          | After                     |
-| ------------------------------------------------ | --------------- | ------------------------- |
-| Routing engine on task creation (`routing/engine.ts`) | dispatched | enqueues pending row |
-| Reminder worker (`jobs/worker.ts`)               | auto-dispatched | enqueues pending row (`queued` outcome) |
-| Manual internal action (`tasks/actions.ts sendTaskWhatsApp`) | dispatched | enqueues pending row → redirects to `/outbox` |
+`enqueueTaskMessage` (pending_approval only) remains for any caller that still
+wants a review queue; workflow paths no longer use it.
 
-### Dispatch happens ONLY on approval
+### Dispatch paths
 
-`approveAndDispatch` is the single code path that calls an adapter. It loads the
-pending row (tenant-scoped), records the approver, transitions
-`pending_approval → sending → sent/failed` around the adapter call, mirrors the provider
-id into `message_deliveries`, and emits honest audit events. `rejectOutboundMessage`
-and `cancelOutboundMessage` never dispatch.
+- `enqueueAndDispatchOnHandle` / `enqueueAndDispatchManual` — primary send paths.
+- `approveAndDispatch` — Postausgang approval for any remaining pending rows
+  (manager/admin, no self-approval).
 
 The session-guarded, tenant-scoped server actions live in
 `src/modules/outbox/actions.ts` (`approveMessage`, `rejectMessage`,
@@ -124,21 +129,24 @@ followed by a forward status correction based on evidence.
 
 ### Audit events
 
-`message_queued` (created), `message_approved`, `message_dispatched` /
+`message_queued` (system enqueue), `message_approved`, `message_dispatched` /
 `message_dispatch_failed`, `message_rejected`, `message_cancelled`, and the
-manual `whatsapp_manual_queued`. All meta is PII-minimal (ids, channel,
-template key, recipient kind).
+manual `whatsapp_manual_sent` / `whatsapp_manual_failed`. All meta is
+PII-minimal (ids, channel, template key, recipient kind).
 
 ## 4. Configuration
 
-Set in `.env.local` (see `src/lib/env.ts`):
+Set in `.env.local` (validated in `src/lib/env.ts`):
 
-- `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID` — enable live WhatsApp.
+- `RESEND_API_KEY`, `RESEND_FROM_EMAIL` — enable **live email** (both required).
+  Resend `fetch` uses a 15s `AbortController` timeout so a hung provider cannot
+  stall the outbox worker.
+- `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID` — enable live WhatsApp
+  Cloud (**parked** until Meta setup). Until then the tasks UI uses
+  **WhatsApp öffnen** (wa.me click-to-chat) and never claims Cloud “versendet”.
 - `WHATSAPP_API_VERSION` (default `v21.0`), `WHATSAPP_USE_TEMPLATES`,
   `WHATSAPP_TEMPLATE_LANGUAGE` (default `de`).
 - `WHATSAPP_WEBHOOK_VERIFY_TOKEN`, `WHATSAPP_APP_SECRET` — inbound webhook.
-- `RESEND_API_KEY`, `RESEND_FROM_EMAIL` — enable live email.
 
-Without WhatsApp/email credentials the app stays in mock mode: approving a
-pending message "sends" via the MockAdapter (logs only, no network, no
-`message_deliveries` row).
+Without email credentials the email adapter stays mock. Without WhatsApp
+credentials Cloud stays mock; consultants still open WhatsApp via wa.me.

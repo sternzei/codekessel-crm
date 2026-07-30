@@ -13,6 +13,7 @@
     "jobs:dev": "tsx --env-file=.env.local src/jobs/worker.ts --loop",
     "jobs:once": "tsx --env-file=.env.local src/jobs/worker.ts --once",
     "test:unit": "node --env-file=.env.local --import tsx --test tests/unit/*.test.ts",
+    "test:e2e": "playwright test",
     "db:reset": "docker compose down -v && docker compose up -d && sleep 3 && pnpm db:migrate && pnpm db:seed"
   },
   "dependencies": {

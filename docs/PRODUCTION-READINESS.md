@@ -1,10 +1,23 @@
 # QCG Sales-Automation — Production-Readiness Assessment
 
-**Date:** 2026-07-27
+**Date:** 2026-07-27 (addendum 2026-07-30)
 **Scope:** `sales-automation/` (Next.js 16 App Router + TypeScript, Drizzle ORM + PostgreSQL w/ RLS, multi-tenant, pnpm).
-**Mode:** Read-only audit. No source code was modified; this report is the only file written.
 
-**Explicitly excluded per instructions:** the in-flight WhatsApp "approval-before-send" gate (the `outbound_messages` table + Postausgang flow). The prior hardening track (atomic job claiming, burn-token-first ordering, `client-ip.ts` / `file-sniff.ts` trust boundaries, CSV formula-injection escaping, atomic status transitions, `tasks_active_dedup_idx`) was **verified sound** (see notes inline) and is not re-flagged as new work.
+## 2026-07-30 product decision
+
+- **WhatsApp Cloud API (Meta) is parked** until Business verification / credentials land.
+- Interim UX: tasks use **WhatsApp öffnen** (wa.me). Cloud sends are refused when
+  adapters are mock — no fake “versendet”.
+- Production env fail-fast added in `src/lib/env.ts` (`APP_BASE_URL` HTTPS,
+  secret strength, `TRUST_PROXY`, `STORAGE_DRIVER=s3` or
+  `ALLOW_LOCAL_STORAGE_IN_PROD=true`).
+- Remaining non-WhatsApp P1s: Redis rate limits, Resend timeouts, structured
+  logs/Sentry, branded `error.tsx`, CI Playwright — track separately.
+
+**Historical note:** The original body below was a read-only audit (2026-07-27).
+Several P0s listed there (storage abstraction, health, Dockerfile, inbound
+tenant scope) have since been implemented; prefer current code + this addendum
+over the frozen P0 table when they conflict.
 
 ## Phase 0 operational addendum
 
@@ -211,6 +224,35 @@ Status of the three P0 blockers (all addressed in this change set):
   worker), `Procfile`, `GET /api/health`, hardened worker (SIGTERM/SIGINT
   graceful shutdown, heartbeat, poll jitter), and `.github/workflows/ci.yml`.
 
+Status of the P1 findings closed since:
+
+- **P1-1 (in-memory throttles) — done.** Login and `/t` buckets live in
+  `rate_limit_buckets` (`RATE_LIMIT_DRIVER=postgres`, the production default),
+  so replicas share one budget. The worker sweeps expired rows each tick.
+- **P1-2 (global login lockout) — done.** Failed logins now count against a
+  per-account+client budget (10 / 5 min) *and*, only when the client IP is
+  knowable, a per-IP budget across all accounts (30 / 5 min) that keeps password
+  spraying capped. With `TRUST_PROXY` unset the per-IP budget is skipped rather
+  than collapsing every caller into one bucket.
+- **P1-3 (no provider timeout) — done.** Outbound WhatsApp/Resend calls abort
+  after `PROVIDER_REQUEST_TIMEOUT_MS` (15 s) via `AbortController`.
+- **P1-5 (no CI) — done.** `.github/workflows/ci.yml` runs lint, typecheck, unit
+  tests, migrate + seed against a Postgres service, and the Playwright suite.
+- **P1-6 (error/loading UI) — done.** `global-error.tsx` plus per-segment
+  `error.tsx` / `not-found.tsx` for the internal app and the public `/t/[token]`
+  flow, localized through `messages/de.json`. Only `/t/[token]` gets a
+  `loading.tsx`: a route-group `loading.tsx` over `(internal)` wraps every page
+  in a Suspense boundary, and in production builds that boundary swallows the
+  refreshed tree a server action returns — the consultant then keeps seeing the
+  pre-action state until a manual reload (caught by `phase2-3`). Internal pages
+  are fast and dynamic, so the fallback bought little; do not re-add it without
+  verifying post-action revalidation against `pnpm start`.
+- **P1-7 (`env.ts` gaps) — done.** `APP_BASE_URL` must be https in production
+  (localhost only allowed for the single-VM demo via
+  `ALLOW_LOCAL_STORAGE_IN_PROD`), secrets require 32+ chars and reject the
+  shipped dev placeholders, and `TRUST_PROXY` / `RESEND_API_KEY` /
+  `RESEND_FROM_EMAIL` are now part of the central schema.
+
 ### Required production environment
 
 Validated centrally in `src/lib/env.ts`; see `.env.example` for the full list.
@@ -219,13 +261,16 @@ Validated centrally in `src/lib/env.ts`; see `.env.example` for the full list.
 |-----|----------|-------|
 | `DATABASE_URL` | yes | App runtime, RLS-enforced `qcg_app` role. |
 | `MIGRATION_DATABASE_URL` | yes (migrate + worker) | Owner role; bypasses RLS by design. |
-| `AUTH_SECRET`, `TOKEN_SECRET` | yes | Must differ; ≥16 chars (use `openssl rand -base64 32`). |
-| `APP_BASE_URL` | yes in prod | HTTPS origin; magic links are minted from it. |
+| `AUTH_SECRET`, `TOKEN_SECRET` | yes | Must differ; ≥32 chars in prod (use `openssl rand -base64 32`). |
+| `APP_BASE_URL` | yes in prod | Public HTTPS origin; magic links are minted from it. |
 | `STORAGE_DRIVER` | yes | `local` or `s3`. **Use `s3` in multi-instance prod.** |
 | `S3_BUCKET` | if `s3` | Enforced at startup when `STORAGE_DRIVER=s3`. |
 | `S3_REGION`/`S3_ENDPOINT`/`S3_ACCESS_KEY_ID`/`S3_SECRET_ACCESS_KEY`/`S3_FORCE_PATH_STYLE`/`S3_KEY_PREFIX` | if `s3` | `S3_ENDPOINT` for R2/MinIO; `S3_FORCE_PATH_STYLE=true` for MinIO. |
-| `TRUST_PROXY` | recommended | See P1-2 — set `true` behind a proxy. |
+| `ALLOW_LOCAL_STORAGE_IN_PROD` | if local in prod | `true` only with a persistent volume (compose: `qcg-uploads`). Also relaxes localhost `APP_BASE_URL` for single-VM demos. |
+| `TRUST_PROXY` | yes in prod | Must be `true` behind a proxy (enforced by `env.ts`). |
 | WhatsApp / Resend / OpenRegister vars | optional | Adapters stay demo-safe until set. |
+
+Full matrix also under **Deploy env matrix** below.
 
 ### Migration step (run before the web tier serves)
 
@@ -238,6 +283,21 @@ node_modules/.bin/drizzle-kit migrate
 Migration `0001` provisions the `qcg_app` role + grants + RLS policies. In prod,
 override its dev password (`ALTER ROLE qcg_app PASSWORD …` / secret manager).
 
+### Deploy env matrix (required in `NODE_ENV=production`)
+
+| Var | Required | Notes |
+|-----|----------|-------|
+| `APP_BASE_URL` | yes | Public **HTTPS** origin (magic links). Localhost/`http://` only allowed with single-VM escape hatch below. |
+| `AUTH_SECRET` / `TOKEN_SECRET` | yes | ≥32 chars, must differ, no placeholders (`openssl rand -base64 32`). |
+| `TRUST_PROXY` | yes | `true` behind nginx/Cloudflare/load balancer. |
+| `STORAGE_DRIVER` | yes | Prefer `s3` in multi-replica prod. |
+| `S3_BUCKET` (+ region/keys) | if `s3` | Enforced at startup. |
+| `ALLOW_LOCAL_STORAGE_IN_PROD` | if local disk | `true` only on a **single always-on VM** with a persistent volume for uploads/PDFs. |
+| `RESEND_API_KEY` / `RESEND_FROM_EMAIL` | optional | Email goes live when both set; otherwise mock. |
+| WhatsApp Cloud vars | parked | Interim UI uses wa.me until Meta credentials land. |
+
+See also [`.env.example`](../.env.example).
+
 ### Run the full stack (prod-like, local)
 
 ```
@@ -247,6 +307,11 @@ curl -fsS localhost:3000/api/health           # -> {"status":"ok"}
 
 - `web` runs migrations then `node server.js`; `worker` runs
   `tsx src/jobs/worker.ts --loop`; both `restart: unless-stopped`.
+- Compose app profile mounts named volume `qcg-uploads` → `/app/var` and sets
+  `ALLOW_LOCAL_STORAGE_IN_PROD=true` so PDFs survive container restarts.
+- `web` has a Docker healthcheck on `/api/health`; `worker` waits until web is healthy.
+- For multi-replica prod: set `STORAGE_DRIVER=s3` and inject `S3_*` into web/worker
+  (do **not** rely on the local volume).
 - `docker compose up -d` (no profile) still starts only `db` (keeps
   `pnpm db:reset` fast and unblocks local dev).
 

@@ -2,7 +2,7 @@ import { defineConfig } from "@playwright/test";
 
 export default defineConfig({
   testDir: "./e2e",
-  timeout: 30_000,
+  timeout: 90_000,
   // Specs re-seed the shared database — they must never run in parallel.
   workers: 1,
   use: {

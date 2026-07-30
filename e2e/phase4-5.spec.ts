@@ -1,4 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import type { Page } from "@playwright/test";
+import { expect, test } from "./fixtures";
 import { execSync } from "node:child_process";
 
 // Phase 4+5 smoke: employer setup assistant, participant task pages,
@@ -62,7 +63,8 @@ test("employer setup assistant keeps the link valid on partial saves", async ({
   page,
 }) => {
   // City Logistik: create a setup link internally, then submit only step 1.
-  await signIn(page);
+  // Minting employer links is reserved for Teamleitung/Administration.
+  await signIn(page, "leitung@demo.de");
   await page.goto("/employers");
   await page
     .locator(".data-row", { hasText: "City Logistik" })
@@ -148,7 +150,10 @@ test("document is generated from central data and canvas-signed", async ({
     page.getByRole("link", { name: "Dokument ansehen (PDF)" }),
   ).toBeVisible();
 
+  // The route streams behind a loading.tsx fallback, so wait for the pad to be
+  // laid out before measuring it — boundingBox() does not retry on its own.
   const canvas = page.locator("canvas.signature-canvas");
+  await expect(canvas).toBeVisible();
   const box = await canvas.boundingBox();
   if (!box) throw new Error("canvas not visible");
   await page.mouse.move(box.x + 30, box.y + 80);

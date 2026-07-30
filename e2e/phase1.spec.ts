@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures";
 import { execSync } from "node:child_process";
 
 // Phase 1 smoke: internal auth, RLS-backed pipeline, tokenized task loop.
@@ -38,7 +38,9 @@ test("consultant signs in and sees the seeded pipeline", async ({ page }) => {
 
   await page.goto("/tasks");
   await expect(page.getByText("Lead erneut anrufen")).toBeVisible();
-  await expect(page.getByText("Betriebsnummer angeben")).toBeVisible();
+  // Pure employer tasks belong to Teamleitung/Administration, so a consultant
+  // must not see them on the board (asserted from the admin side below).
+  await expect(page.getByText("Betriebsnummer angeben")).toHaveCount(0);
 });
 
 test("wrong credentials are rejected", async ({ page }) => {
@@ -82,6 +84,8 @@ test("routing engine created the employer follow-up task", async ({ page }) => {
     page.getByText("Zeitmodell 20h/Woche bestätigen"),
   ).toBeVisible();
   await expect(page.getByText("Nordbau GmbH")).toBeVisible();
+  // Admins do see the employer-only task the consultant was denied above.
+  await expect(page.getByText("Betriebsnummer angeben")).toBeVisible();
 });
 
 test("invalid token shows a friendly error", async ({ page }) => {

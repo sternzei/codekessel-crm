@@ -1,4 +1,5 @@
-import { expect, test, type Page } from "@playwright/test";
+import type { Page } from "@playwright/test";
+import { expect, test } from "./fixtures";
 import { execSync } from "node:child_process";
 
 // Phase 6 smoke: submission readiness gate, the full submission state machine
@@ -124,7 +125,10 @@ test("full submission flow: prepare → employer confirm → approve → enrolle
   const signLink = (await page.getByTestId("task-link").innerText()).trim();
   await page.goto(signLink);
   await expect(page.locator("h1")).toContainText("Dokument unterschreiben");
+  // The route streams behind a loading.tsx fallback, so wait for the pad to be
+  // laid out before measuring it — boundingBox() does not retry on its own.
   const canvas = page.locator("canvas.signature-canvas");
+  await expect(canvas).toBeVisible();
   const box = await canvas.boundingBox();
   if (!box) throw new Error("canvas not visible");
   await page.mouse.move(box.x + 30, box.y + 80);
@@ -149,7 +153,10 @@ test("full submission flow: prepare → employer confirm → approve → enrolle
   await lena().getByRole("button", { name: "An Arbeitgeber senden" }).click();
   await expect(lena().getByText("Beim Arbeitgeber")).toBeVisible();
 
-  // Mint the employer confirmation link from the task board.
+  // Mint the employer confirmation link from the task board. Employer-owned
+  // tasks are reserved for Teamleitung/Administration, so hand over first.
+  await page.getByRole("button", { name: "Abmelden" }).click();
+  await signIn(page, "leitung@demo.de");
   await page.goto("/tasks");
   await page
     .locator(".data-row", {
@@ -176,7 +183,9 @@ test("full submission flow: prepare → employer confirm → approve → enrolle
 test("analytics dashboard renders KPIs and respects filters", async ({
   page,
 }) => {
-  await signIn(page);
+  // Consultants only ever see themselves in the Beratung filter, so the
+  // cross-consultant assertion below needs Teamleitung/Administration.
+  await signIn(page, "leitung@demo.de");
   await page.goto("/reports");
 
   await expect(page.locator("h1")).toContainText("Berichte");
@@ -200,7 +209,10 @@ test("analytics dashboard renders KPIs and respects filters", async ({
   ).toContainText("1");
 
   // Consultant filter: Anna Adler (admin) has no assigned leads.
-  await page.selectOption("select[name=consultant]", "Anna Adler (Admin)");
+  await page.selectOption(
+    "select[name=consultant]",
+    "Anna Adler (Administration)",
+  );
   await page.getByRole("button", { name: "Filter anwenden" }).click();
   await expect(leadsCard.locator(".kpi-value")).toContainText(/^0$/);
 });
