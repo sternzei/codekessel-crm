@@ -29,6 +29,11 @@ const envSchema = z.object({
   S3_FORCE_PATH_STYLE: z.enum(["true", "false"]).optional(),
   // Optional key namespace inside the bucket, e.g. "qcg/prod".
   S3_KEY_PREFIX: z.string().optional(),
+  // Participant uploads normally go straight from the browser to the bucket,
+  // which is what keeps a scanned document from having to fit through the
+  // host's request-body limit. Set to "false" when the bucket is not reachable
+  // from a browser (a private MinIO, say) to route them through the app again.
+  S3_DIRECT_UPLOADS: z.enum(["true", "false"]).optional(),
   // Magic-link token lifetime in hours (default 168 = 7 days). Centrally
   // enforced + clamped to safe guardrails in modules/tokens/policy.ts.
   MAGIC_LINK_TTL_HOURS: z.coerce.number().int().positive().optional(),
@@ -196,6 +201,7 @@ export const env = envSchema.parse({
   S3_SECRET_ACCESS_KEY: process.env.S3_SECRET_ACCESS_KEY,
   S3_FORCE_PATH_STYLE: process.env.S3_FORCE_PATH_STYLE,
   S3_KEY_PREFIX: process.env.S3_KEY_PREFIX,
+  S3_DIRECT_UPLOADS: process.env.S3_DIRECT_UPLOADS,
   MAGIC_LINK_TTL_HOURS: process.env.MAGIC_LINK_TTL_HOURS,
   OPENREGISTER_API_KEY: process.env.OPENREGISTER_API_KEY,
   OPENREGISTER_BASE_URL: process.env.OPENREGISTER_BASE_URL,

@@ -17,13 +17,27 @@ const scriptSrc = isProd
   ? "'self' 'unsafe-inline'"
   : "'self' 'unsafe-inline' 'unsafe-eval'"; // dev/HMR needs eval
 
+// Participant uploads go straight from the browser to object storage when the
+// storage backend can presign (see modules/storage), so that one origin has to
+// be reachable. Only the origin is allowed, never a wildcard, and only when it
+// is actually configured — a deployment without direct upload keeps 'self'.
+const storageOrigin = (() => {
+  const endpoint = process.env.S3_ENDPOINT;
+  if (!endpoint) return null;
+  try {
+    return new URL(endpoint).origin;
+  } catch {
+    return null;
+  }
+})();
+
 const csp = [
   "default-src 'self'",
   `script-src ${scriptSrc}`,
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob:",
   "font-src 'self' data:",
-  "connect-src 'self'",
+  `connect-src 'self'${storageOrigin ? ` ${storageOrigin}` : ""}`,
   "frame-src 'none'",
   "frame-ancestors 'none'",
   "object-src 'none'",
@@ -55,6 +69,14 @@ const nextConfig: NextConfig = {
   // Emit a self-contained server bundle (.next/standalone/server.js) so the
   // production Docker image can run the web tier without the full node_modules.
   output: "standalone",
+  // PDF generation reads these from disk at request time (documents/fonts.ts,
+  // documents/ba-forms.ts). Static analysis cannot see a path built at runtime,
+  // so without this they are missing from a serverless bundle and every
+  // document turns into a 500 — on Vercel, where there is no image to copy
+  // them into, that is the difference between working and not.
+  outputFileTracingIncludes: {
+    "/**": ["./assets/fonts/**", "./templates/pdf/**"],
+  },
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },

@@ -1,0 +1,35 @@
+# The reminder/escalation worker, for a host that can keep a process alive.
+#
+# Vercel cannot: it has no long-running processes, and the once-a-day cron a
+# Hobby plan offers would make a reminder scheduled for tomorrow morning fire
+# whenever the day happens to tick over. So the web tier goes to Vercel and
+# this one machine goes anywhere that bills for uptime — Fly here, but Railway
+# or a small VM run the same image with the same command.
+#
+# It shares the Dockerfile with the web tier and only overrides the command.
+#
+#   fly launch --no-deploy --copy-config --config fly.worker.toml
+#   fly secrets set --config fly.worker.toml MIGRATION_DATABASE_URL=... (see docs)
+#   fly deploy --config fly.worker.toml
+#
+# See docs/DEPLOY-VERCEL-SUPABASE.md for the full secret list.
+
+app = "qcg-worker"
+# Frankfurt, next to the database: participant records carry SV-Nummer, IBAN
+# and signatures, and they should not leave the EU on the way to a reminder.
+primary_region = "fra"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[processes]
+  worker = "node dist/worker.mjs --loop"
+
+# No [http_service]: this app serves nothing and must never be routed to. That
+# also means nothing can auto-stop it — a stopped worker sends no reminders,
+# and nobody would get a 502 to notice it by.
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
+  processes = ["worker"]

@@ -3,7 +3,8 @@
 
 > **Developer quickstart** — architecture in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md);
 > OpenRegister lead import (discovery, dedup, provenance, `import_runs`) in
-> [docs/REGISTER-IMPORT.md](docs/REGISTER-IMPORT.md)
+> [docs/REGISTER-IMPORT.md](docs/REGISTER-IMPORT.md); deploying to Vercel +
+> Supabase in [docs/DEPLOY-VERCEL-SUPABASE.md](docs/DEPLOY-VERCEL-SUPABASE.md)
 >
 > ```bash
 > pnpm install

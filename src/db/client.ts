@@ -10,8 +10,23 @@ const globalForDb = globalThis as unknown as {
   qcgSql?: ReturnType<typeof postgres>;
 };
 
+// A long-lived server shares one pool across all concurrent requests, so ten
+// connections is cheap. A serverless platform inverts that: every instance
+// holds its own pool and there may be hundreds at once, so ten each exhausts
+// the database's connection limit long before the app is under real load.
+// DB_POOL_MAX exists for that case — set it to 1 and point DATABASE_URL at a
+// transaction-mode pooler, which is what actually does the multiplexing.
+const POOL_MAX = Number(process.env.DB_POOL_MAX ?? 10);
+
 const client =
-  globalForDb.qcgSql ?? postgres(env.DATABASE_URL, { max: 10, prepare: false });
+  globalForDb.qcgSql ??
+  postgres(env.DATABASE_URL, {
+    max: Number.isFinite(POOL_MAX) && POOL_MAX > 0 ? POOL_MAX : 10,
+    // Also required by transaction-mode poolers: a prepared statement outlives
+    // the transaction that made it, but the backend it was prepared on does
+    // not stay assigned to this client.
+    prepare: false,
+  });
 if (process.env.NODE_ENV !== "production") globalForDb.qcgSql = client;
 
 export const db = drizzle(client, { schema });

@@ -6,7 +6,13 @@ import { LocalStorageAdapter } from "./local-driver";
 import { S3StorageAdapter } from "./s3-driver";
 import type { StorageAdapter } from "./types";
 
-export type { StorageAdapter, StorageKey, StoragePutParams } from "./types";
+export type {
+  PresignUploadParams,
+  PresignedUpload,
+  StorageAdapter,
+  StorageKey,
+  StoragePutParams,
+} from "./types";
 export { buildStorageKey, normalizeStorageKey } from "./keys";
 export { DbStorageAdapter, MAX_OBJECT_BYTES } from "./db-driver";
 export { LocalStorageAdapter } from "./local-driver";
@@ -24,6 +30,7 @@ export type StorageConfig = {
     readonly secretAccessKey?: string;
     readonly forcePathStyle?: boolean;
     readonly keyPrefix?: string;
+    readonly allowPresignedUploads?: boolean;
   };
 };
 
@@ -66,6 +73,7 @@ export function createStorageFromConfig(
       client,
       bucket: s3.bucket,
       keyPrefix: s3.keyPrefix,
+      allowPresignedUploads: s3.allowPresignedUploads,
     });
   }
   return new LocalStorageAdapter(config.localRoot);
@@ -83,6 +91,7 @@ function storageConfigFromEnv(): StorageConfig {
       secretAccessKey: env.S3_SECRET_ACCESS_KEY,
       forcePathStyle: env.S3_FORCE_PATH_STYLE === "true",
       keyPrefix: env.S3_KEY_PREFIX,
+      allowPresignedUploads: env.S3_DIRECT_UPLOADS !== "false",
     },
   };
 }
@@ -93,4 +102,14 @@ let cached: StorageAdapter | null = null;
 export function getStorage(): StorageAdapter {
   if (!cached) cached = createStorageFromConfig(storageConfigFromEnv());
   return cached;
+}
+
+/**
+ * Whether a browser can upload to storage without the bytes passing through
+ * this app. Worth asking because a serverless host caps request bodies far
+ * below what a scanned document needs, so the answer decides which upload
+ * form a participant is shown.
+ */
+export function supportsDirectUpload(): boolean {
+  return typeof getStorage().presignUpload === "function";
 }

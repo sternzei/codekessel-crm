@@ -382,6 +382,36 @@ The verify step lists any `file_path` / `signed_file_path` /
 under this driver proves the table and its grants — but it is no longer an
 independent failure domain from the database check.
 
+### Direct-to-storage participant uploads
+
+When the storage backend can presign (any S3-compatible bucket, including
+Supabase Storage), the upload page hands the browser a URL and gets out of the
+way. The bytes never traverse the app, which is what lets a 10 MB scan through
+a host that caps request bodies at 4.5 MB. Everywhere else — local disk,
+Postgres blobs — the plain form post is still used, so development and the
+Docker deployment are unchanged.
+
+What holds it together, given that the app is told about a file it never saw:
+
+- **The key is a grant, not a claim.** The server picks it, signs it into a
+  short-lived ticket together with the content type and byte count, and refuses
+  on submit anything it did not sign. A participant naming the key of someone
+  else's document gets nothing.
+- **The ticket is bound to one magic link.** It carries the link's fingerprint
+  as its subject, so a ticket issued on one participant's link cannot be
+  redeemed on another's.
+- **Content type and length are inside the signature.** A ticket for a 2 MB PDF
+  will not accept two gigabytes of anything else.
+- **The bytes are still sniffed.** The server reads the object back and checks
+  its leading bytes against the declared type, exactly as it did when the file
+  came through a form. Rejected objects are deleted rather than left behind.
+- **Issuing tickets does not complete the task.** Nothing has been received
+  yet, and burning the link there would strand a participant whose upload then
+  failed. It does spend the same throttle budget as a real submission.
+
+Known gap: a participant who selects a file and closes the tab leaves an
+unreferenced object in the bucket. Nothing prunes those yet.
+
 ### Sign in with Google, with an admin approval gate
 
 Two ways into the app: a password an admin set, or a Google account. Google
@@ -518,6 +548,25 @@ curl -fsS localhost:3000/api/health           # -> {"status":"ok"}
 `Procfile` defines `release` (migrate), `web` (`node server.js`), and `worker`.
 Point the worker dyno/process at the `worker` entry so reminders/escalations run
 under supervision — a dead worker silently stops all automated follow-up.
+
+### Vercel + Supabase
+
+See [DEPLOY-VERCEL-SUPABASE.md](./DEPLOY-VERCEL-SUPABASE.md) for the full
+walkthrough. Three things differ from every other target and are easy to get
+wrong:
+
+- **The worker still needs a host that keeps a process alive.** Vercel has
+  none, and a once-a-day cron would make a reminder scheduled for 09:00 fire
+  whenever the day happens to tick over. `fly.worker.toml` runs the same image
+  with `node dist/worker.mjs --loop`.
+- **Supabase publishes the `public` schema over an auto-generated REST API**
+  and grants the `anon` role — a deliberately public key — access to new
+  tables. Migration `0021` takes those grants back and enables RLS on the two
+  tables that had none, `storage_objects` among them. Without it, every
+  uploaded document is readable by anyone who knows the project ref.
+- **Uploads bypass the app.** A serverless request body is capped at 4.5 MB,
+  well under the 10 MB a scan needs, so the browser PUTs to a presigned URL and
+  the server reads the bytes back to verify them (see below).
 
 ### Monitoring hooks
 

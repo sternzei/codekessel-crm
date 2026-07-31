@@ -148,6 +148,13 @@
       "when": 1785400004000,
       "tag": "0020_google_sign_in",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1785400005000,
+      "tag": "0021_supabase_hardening",
+      "breakpoints": true
     }
   ]
 }

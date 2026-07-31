@@ -16,6 +16,12 @@ import { requestClientIp } from "@/lib/client-ip";
 import { extensionFor, sniffUploadType, type SniffedUploadType } from "@/lib/file-sniff";
 import { logActivity } from "@/modules/audit/log";
 import { normalizePhone } from "@/modules/participants/phone";
+import {
+  openUploadTicket,
+  sealUploadTicket,
+  type UploadTicketGrant,
+  type UploadTicketResult,
+} from "@/modules/participants/upload-ticket";
 import { processTransition } from "@/modules/routing/engine";
 import { buildStorageKey, getStorage } from "@/modules/storage";
 import {
@@ -268,43 +274,214 @@ export async function giveConsent(formData: FormData): Promise<void> {
 // ---------------------------------------------------------------------------
 
 const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+const MAX_UPLOAD_FILES = 5;
 const ALLOWED_TYPES = new Set([
   "application/pdf",
   "image/jpeg",
   "image/png",
 ]);
+// Long enough for a slow phone connection to finish a 10 MB scan, short
+// enough that a leaked URL is worthless by the time anyone finds it.
+const UPLOAD_URL_TTL_SECONDS = 15 * 60;
+
+/**
+ * A file that passed validation. `key` is set when the bytes are already in
+ * storage because the browser put them there directly; otherwise they still
+ * have to be written.
+ */
+type AcceptedUpload = {
+  readonly name: string;
+  readonly bytes: Buffer;
+  readonly type: SniffedUploadType;
+  readonly key: string | null;
+};
+
+const isAllowedUploadType = (
+  value: string,
+): value is "application/pdf" | "image/jpeg" | "image/png" =>
+  ALLOWED_TYPES.has(value);
+
+/**
+ * Accepts a file only when its leading bytes match the type it claims to be
+ * (see lib/file-sniff). The claim is client-controlled in both upload paths —
+ * as a form field in one, as a signed ticket in the other — so the bytes are
+ * the only thing worth believing.
+ */
+const acceptIfGenuine = (
+  input: { readonly name: string; readonly bytes: Buffer; readonly declared: string },
+): AcceptedUpload | null => {
+  if (input.bytes.byteLength === 0) return null;
+  if (input.bytes.byteLength > MAX_UPLOAD_BYTES) return null;
+  const sniffed = sniffUploadType(input.bytes);
+  if (!sniffed || sniffed !== input.declared) return null;
+  return { name: input.name, bytes: input.bytes, type: sniffed, key: null };
+};
+
+const ticketSchema = z.object({
+  token: z.string().min(10),
+  files: z
+    .array(
+      z.object({
+        name: z.string().trim().min(1).max(200),
+        contentType: z.string().min(1).max(100),
+        byteSize: z.number().int().positive().max(MAX_UPLOAD_BYTES),
+      }),
+    )
+    .min(1)
+    .max(MAX_UPLOAD_FILES),
+});
+
+/**
+ * Issues one presigned upload per file so the bytes never pass through this
+ * app — a serverless host caps request bodies well below a scanned document.
+ *
+ * Deliberately does not complete the task: nothing has been received yet, and
+ * burning here would strand a participant whose upload then failed. What it
+ * does spend is the same throttle budget as a real submission, so handing out
+ * tickets cannot be turned into free storage.
+ */
+export async function requestUploadTickets(input: {
+  token: string;
+  files: { name: string; contentType: string; byteSize: number }[];
+}): Promise<UploadTicketResult> {
+  if (await isExternalActionThrottled()) return { ok: false, reason: "throttled" };
+
+  const parsed = ticketSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, reason: "rejected" };
+
+  const storage = getStorage();
+  const presign = storage.presignUpload;
+  if (!presign) return { ok: false, reason: "unsupported" };
+
+  const signature = await verifyTokenSignature(parsed.data.token);
+  if (!signature) return { ok: false, reason: "invalid" };
+
+  // Read-only check that this link may still upload, before anything is
+  // signed. The task stays open.
+  const permitted = await withTenant(signature.tenantId, async (tx) =>
+    Boolean(await requireCtx(tx, parsed.data.token, ["upload_documents"])),
+  );
+  if (!permitted) return { ok: false, reason: "invalid" };
+
+  const grants: UploadTicketGrant[] = [];
+  for (const file of parsed.data.files) {
+    if (!isAllowedUploadType(file.contentType)) continue;
+    const presigned = await presign({
+      // The server picks the key. A client that could name it would be able to
+      // aim an upload at an existing object.
+      key: buildStorageKey({
+        prefix: "uploads",
+        extension: extensionFor(file.contentType),
+      }),
+      contentType: file.contentType,
+      byteSize: file.byteSize,
+      expiresInSeconds: UPLOAD_URL_TTL_SECONDS,
+    });
+    grants.push({
+      url: presigned.url,
+      headers: presigned.headers,
+      ticket: await sealUploadTicket(
+        {
+          key: presigned.key,
+          contentType: file.contentType,
+          byteSize: file.byteSize,
+          fileName: file.name,
+        },
+        { token: parsed.data.token },
+      ),
+    });
+  }
+
+  if (grants.length === 0) return { ok: false, reason: "rejected" };
+  return { ok: true, grants };
+}
+
+/**
+ * Reads back what the browser uploaded directly and keeps only the genuine
+ * files. Objects that fail are removed: a rejected upload must not be left
+ * sitting in the bucket, unreferenced and unaccounted for.
+ */
+async function collectDirectUploads(
+  tickets: readonly string[],
+  token: string,
+): Promise<AcceptedUpload[]> {
+  const storage = getStorage();
+  const accepted: AcceptedUpload[] = [];
+  for (const sealed of tickets.slice(0, MAX_UPLOAD_FILES)) {
+    const claims = await openUploadTicket(sealed, { token });
+    if (!claims) continue;
+    let bytes: Buffer;
+    try {
+      bytes = await storage.get(claims.key);
+    } catch {
+      // Never uploaded, or already gone. Nothing to file and nothing to clean.
+      continue;
+    }
+    const file = acceptIfGenuine({
+      name: claims.fileName,
+      bytes,
+      declared: claims.contentType,
+    });
+    if (!file) {
+      await discardObject(claims.key);
+      continue;
+    }
+    accepted.push({ ...file, key: claims.key });
+  }
+  return accepted;
+}
+
+/** Best-effort cleanup; a leftover object must never fail the request. */
+async function discardObject(key: string): Promise<void> {
+  try {
+    await getStorage().delete(key);
+  } catch {
+    // Swallowed on purpose: the participant's upload is what matters here.
+  }
+}
+
+async function collectFormUploads(formData: FormData): Promise<AcceptedUpload[]> {
+  const files = formData
+    .getAll("files")
+    .filter((f): f is File => f instanceof File && f.size > 0);
+  const accepted: AcceptedUpload[] = [];
+  for (const file of files.slice(0, MAX_UPLOAD_FILES)) {
+    if (file.size > MAX_UPLOAD_BYTES) continue;
+    if (!isAllowedUploadType(file.type)) continue;
+    const genuine = acceptIfGenuine({
+      name: file.name,
+      bytes: Buffer.from(await file.arrayBuffer()),
+      declared: file.type,
+    });
+    if (genuine) accepted.push(genuine);
+  }
+  return accepted;
+}
 
 export async function uploadDocuments(formData: FormData): Promise<void> {
   if (await isExternalActionThrottled()) {
     redirect(`/t/${String(formData.get("token") ?? "")}?throttled=1`);
   }
   const token = z.string().min(10).parse(formData.get("token"));
-  const files = formData
-    .getAll("files")
-    .filter((f): f is File => f instanceof File && f.size > 0);
-  if (files.length === 0) return;
+  const tickets = formData.getAll("tickets").filter((t): t is string =>
+    typeof t === "string" && t.length > 0,
+  );
 
   const signature = await verifyTokenSignature(token);
   if (!signature) redirect(`/t/${token}`);
 
-  // Validate BEFORE opening the transaction / burning the task: the claimed
-  // MIME type is client-controlled, so a file is accepted only when its magic
-  // bytes match the claim (see lib/file-sniff). Reading the bytes here also
-  // keeps the transaction short. The stored extension comes from the sniffed
-  // type, never from the client.
-  const accepted: { name: string; bytes: Buffer; type: SniffedUploadType }[] =
-    [];
-  for (const file of files.slice(0, 5)) {
-    if (file.size > MAX_UPLOAD_BYTES) continue;
-    if (!ALLOWED_TYPES.has(file.type)) continue;
-    const bytes = Buffer.from(await file.arrayBuffer());
-    const sniffed = sniffUploadType(bytes);
-    if (!sniffed || sniffed !== file.type) continue;
-    accepted.push({ name: file.name, bytes, type: sniffed });
+  // Validate BEFORE opening the transaction / burning the task. Reading the
+  // bytes here also keeps the transaction short. The stored extension comes
+  // from the sniffed type, never from the client.
+  const accepted =
+    tickets.length > 0
+      ? await collectDirectUploads(tickets, token)
+      : await collectFormUploads(formData);
+  if (accepted.length === 0) {
+    // Back with an error while the task is still OPEN, so the participant can
+    // retry with real files (burn-first would strand them).
+    redirect(`/t/${token}?error=1`);
   }
-  // Nothing usable → back with an error while the task is still OPEN, so the
-  // participant can retry with real files (burn-first would strand them).
-  if (accepted.length === 0) redirect(`/t/${token}?error=1`);
 
   const ok = await withTenant(signature.tenantId, async (tx) => {
     const ctx = await requireCtx(tx, token, ["upload_documents"]);
@@ -318,12 +495,16 @@ export async function uploadDocuments(formData: FormData): Promise<void> {
     for (const file of accepted) {
       const sha256 = createHash("sha256").update(file.bytes).digest("hex");
       // Stored under a random key — user-supplied filenames never reach storage.
-      const contentType = file.type;
-      const key = await storage.put({
-        key: buildStorageKey({ prefix: "uploads", extension: extensionFor(file.type) }),
-        bytes: file.bytes,
-        contentType,
-      });
+      const key =
+        file.key ??
+        (await storage.put({
+          key: buildStorageKey({
+            prefix: "uploads",
+            extension: extensionFor(file.type),
+          }),
+          bytes: file.bytes,
+          contentType: file.type,
+        }));
 
       await tx.insert(documents).values({
         tenantId: signature.tenantId,
@@ -348,5 +529,12 @@ export async function uploadDocuments(formData: FormData): Promise<void> {
     return true;
   });
 
+  if (!ok) {
+    // The link was spent or revoked between validation and the burn. Nothing
+    // was filed, so the bytes already in the bucket reference nothing.
+    for (const file of accepted) {
+      if (file.key) await discardObject(file.key);
+    }
+  }
   redirect(ok ? `/t/${token}?done=1` : `/t/${token}`);
 }
