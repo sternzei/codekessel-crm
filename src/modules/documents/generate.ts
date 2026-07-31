@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
+import { PDFDocument, rgb } from "pdf-lib";
 import { buildStorageKey, getStorage } from "@/modules/storage";
 import {
   BA_TEMPLATES,
@@ -14,13 +14,17 @@ import {
   type CohortParticipant,
 } from "./ba-forms";
 import type { ApplicationData } from "./data";
+import { embedDocumentFonts } from "./fonts";
 
 // PDF layer. Two modes, matching the concept's §9:
-//  A) Autofill: fillable AcroForm templates (real BA forms drop into
-//     templates/pdf/ later — until then a generated SAMPLE template proves
-//     the engine; content is clearly marked PLATZHALTER).
+//  A) Autofill: the real BA AcroForms in templates/pdf/, plus one stammblatt
+//     template this app generates for its own participant overview.
 //  B) Generation: documents we own (cost overview, employer data sheet)
 //     drawn directly with pdf-lib.
+//
+// Everything here draws user-entered text, so it goes through
+// embedDocumentFonts — never StandardFonts, whose WinAnsi encoder throws on
+// names outside Windows-1252 (see fonts.ts).
 
 // Bundled, read-only form templates ship with the app, so they stay on the
 // local filesystem. Only participant uploads + generated/signed artifacts go
@@ -75,19 +79,18 @@ export async function ensureSampleTemplate(): Promise<string> {
 
   const doc = await PDFDocument.create();
   const page = doc.addPage([595, 842]); // A4
-  const font = await doc.embedFont(StandardFonts.Helvetica);
-  const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+  const { regular: font, bold } = await embedDocumentFonts(doc);
   const form = doc.getForm();
 
-  page.drawText("MUSTER — Teilnehmer-Stammblatt (PLATZHALTER)", {
+  page.drawText("Teilnehmer-Stammblatt", {
     x: 50,
     y: 790,
     size: 14,
     font: bold,
   });
   page.drawText(
-    "Dieses Formular ist ein technisches Muster. Es ersetzt kein Formular der Bundesagentur für Arbeit.",
-    { x: 50, y: 770, size: 8, font, color: rgb(0.6, 0.1, 0.1) },
+    "Interne Stammdatenübersicht des Bildungsträgers. Ersetzt kein Formular der Bundesagentur für Arbeit.",
+    { x: 50, y: 770, size: 8, font, color: rgb(0.45, 0.45, 0.45) },
   );
 
   let y = 720;
@@ -129,6 +132,10 @@ export async function generateParticipantForm(
   for (const [fieldName, dataKey] of Object.entries(SAMPLE_MAPPING)) {
     form.getTextField(fieldName).setText(flat[dataKey] ?? "");
   }
+  // Flattening bakes the appearances, so the Unicode font has to be in place
+  // first — otherwise the template's Helvetica decides what a name may contain.
+  const fonts = await embedDocumentFonts(doc);
+  form.updateFieldAppearances(fonts.regular);
   form.flatten();
 
   return persist(await doc.save());
@@ -234,12 +241,11 @@ export async function generateSummaryPdf(
 ): Promise<GeneratedFile> {
   const doc = await PDFDocument.create();
   const page = doc.addPage([595, 842]);
-  const font = await doc.embedFont(StandardFonts.Helvetica);
-  const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+  const { regular: font, bold } = await embedDocumentFonts(doc);
 
   page.drawText(title, { x: 50, y: 790, size: 16, font: bold });
   page.drawText(
-    `Erstellt am ${new Date().toLocaleDateString("de-DE")} — PLATZHALTER, kein amtliches Dokument`,
+    `Erstellt am ${new Date().toLocaleDateString("de-DE")} · Arbeitsunterlage des Bildungsträgers, kein amtliches Formular der Bundesagentur für Arbeit`,
     { x: 50, y: 772, size: 8, font, color: rgb(0.45, 0.45, 0.45) },
   );
 
@@ -277,7 +283,7 @@ export async function generateCostOverview(
       heading: "Kosten",
       rows: [
         ["Lehrgangskosten gesamt", m?.costEur ? `${m.costEur} EUR` : ""],
-        ["Kostenträger", "Agentur für Arbeit (bei Bewilligung) — PLATZHALTER"],
+        ["Kostenträger", "Agentur für Arbeit (vorbehaltlich der Bewilligung)"],
       ],
     },
     {
@@ -328,8 +334,7 @@ export async function generateSignedArtifact(params: {
 }): Promise<GeneratedFile> {
   const storage = getStorage();
   const doc = await PDFDocument.load(await storage.get(params.originalRelativePath));
-  const font = await doc.embedFont(StandardFonts.Helvetica);
-  const bold = await doc.embedFont(StandardFonts.HelveticaBold);
+  const { regular: font, bold } = await embedDocumentFonts(doc);
 
   const fmt = (d: Date) =>
     d.toLocaleString("de-DE", { dateStyle: "medium", timeStyle: "short" });
@@ -430,7 +435,7 @@ export async function generateSignedArtifact(params: {
   const cert = doc.addPage([595, 842]);
   cert.drawText("Unterschriften-Nachweis", { x: 50, y: 790, size: 18, font: bold });
   cert.drawText(
-    "Einfache elektronische Signatur (eIDAS SES) — PLATZHALTER, rechtliche Prüfung ausstehend",
+    "Einfache elektronische Signatur (eIDAS SES) mit Zeitstempel, IP-Adresse und Prüfsumme des unterzeichneten Originals",
     { x: 50, y: 770, size: 8, font, color: rgb(0.45, 0.45, 0.45) },
   );
   cert.drawText(`Dokument: ${params.documentTitle}`, { x: 50, y: 740, size: 11, font });
@@ -530,7 +535,7 @@ export async function generateEServiceCompanionSingle(
       {
         heading: "Schritt 3 — Weiterbildung (Upload: Trägerbescheinigung!)",
         rows: [
-          ["Name des Bildungsträgers", "codeKessel Inh. Ugur Karatas"],
+          ["Name des Bildungsträgers", PROVIDER_NAME],
           ["Bezeichnung der Weiterbildung", m?.name ?? ""],
           ["AZAV-zugelassen (§§ 176 ff. SGB III)", "Ja"],
           ["Mehr als 120 Stunden", m ? yesNo(m.durationWeeks * m.weeklyHours > 120) : ""],

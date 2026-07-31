@@ -221,7 +221,7 @@ export default async function DocumentChecklistPage({
             <div className="quick-actions">
               {(
                 [
-                  ["participant_form", "Teilnehmer-Stammblatt (Muster)"],
+                  ["participant_form", "Teilnehmer-Stammblatt"],
                   ["employer_datasheet", "Arbeitgeber-Datenblatt"],
                 ] as const
               ).map(([type, label]) => (

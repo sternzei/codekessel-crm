@@ -114,7 +114,7 @@ const DOC_TYPES = withSignatures({
   },
   // ---- Interne Dokumente
   participant_form: {
-    title: "Teilnehmer-Stammblatt (Muster)",
+    title: "Teilnehmer-Stammblatt",
     path: "internal",
     generate: (d) => generateParticipantForm(d),
     requires: (d) =>

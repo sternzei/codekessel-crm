@@ -123,7 +123,7 @@ test("document is generated from central data and canvas-signed", async ({
 
   // AcroForm autofill path (mode A): Lena's data is complete.
   await page
-    .getByRole("button", { name: "Teilnehmer-Stammblatt (Muster)" })
+    .getByRole("button", { name: "Teilnehmer-Stammblatt" })
     .click();
   await expect(
     page
@@ -182,7 +182,7 @@ test("missing data creates a data_missing document plus a clarification task", a
   await page.goto("/documents");
   await page.getByRole("link", { name: "Tarek Aziz" }).click();
   await page
-    .getByRole("button", { name: "Teilnehmer-Stammblatt (Muster)" })
+    .getByRole("button", { name: "Teilnehmer-Stammblatt" })
     .click();
   await expect(
     page

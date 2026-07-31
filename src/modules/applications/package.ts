@@ -1,6 +1,6 @@
 import path from "node:path";
 import { eq, inArray } from "drizzle-orm";
-import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
+import { PDFDocument, rgb } from "pdf-lib";
 import type { DbHandle } from "@/db/client";
 import {
   applications,
@@ -10,6 +10,7 @@ import {
   participants,
   signatures,
 } from "@/db/schema";
+import { embedDocumentFonts } from "@/modules/documents/fonts";
 import { getStorage } from "@/modules/storage";
 import {
   evaluateUploadSet,
@@ -69,15 +70,15 @@ export async function buildApplicationPackage(
   });
 
   const merged = await PDFDocument.create();
-  const font = await merged.embedFont(StandardFonts.Helvetica);
-  const bold = await merged.embedFont(StandardFonts.HelveticaBold);
+  const { regular: font, bold } = await embedDocumentFonts(merged);
 
   // Cover page
   const cover = merged.addPage([595, 842]);
   cover.drawText("Antragspaket QCG-Weiterbildung", { x: 50, y: 780, size: 18, font: bold });
-  cover.drawText("PLATZHALTER — vollständige Zusammenstellung, kein amtliches Formular", {
-    x: 50, y: 760, size: 8, font, color: rgb(0.6, 0.1, 0.1),
-  });
+  cover.drawText(
+    "Zusammenstellung für die eService-Einreichung — kein amtliches Formular",
+    { x: 50, y: 760, size: 8, font, color: rgb(0.45, 0.45, 0.45) },
+  );
   const lines: [string, string][] = [
     ["Teilnehmer:in", participant ? `${participant.firstName} ${participant.lastName}` : "—"],
     ["Arbeitgeber", employer?.companyName ?? "—"],
@@ -106,12 +107,12 @@ export async function buildApplicationPackage(
   y -= 20;
   for (const item of uploadSet.items) {
     const mark = !item.present
-      ? "✗ fehlt"
+      ? "[ ] fehlt"
       : item.requiresSignature && !item.signed
         ? item.qesPending
-          ? "⧗ QES ausstehend"
-          : "⧗ Signatur ausstehend"
-        : "✓ vollständig";
+          ? "[~] QES ausstehend"
+          : "[~] Signatur ausstehend"
+        : "[x] vollständig";
     const suffix = item.required ? "" : " (optional)";
     cover.drawText(`${mark} — ${item.label}${suffix}`, { x: 60, y, size: 9, font });
     y -= 15;

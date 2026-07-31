@@ -19,6 +19,9 @@ import { fmtDateTime } from "../leads/[id]/labels";
 
 export const dynamic = "force-dynamic";
 
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 const STATUS: Record<string, { label: string; cls: string }> = {
   in_preparation: { label: "In Vorbereitung", cls: "badge" },
   complete: { label: "Vollständig", cls: "badge badge--ok" },
@@ -30,9 +33,18 @@ const STATUS: Record<string, { label: string; cls: string }> = {
   correction_required: { label: "Korrektur nötig", cls: "badge badge--danger" },
 };
 
-export default async function ApplicationsPage() {
+export default async function ApplicationsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ exported?: string }>;
+}) {
   const session = await getSession();
   if (!session) redirect("/auth/sign-in");
+
+  const params = await searchParams;
+  // Only ever set by the export action; anything else in the URL is ignored so
+  // it can never be reflected into the download link.
+  const exported = UUID_PATTERN.test(params.exported ?? "") ? params.exported : null;
 
   const rows = await withTenant(session.tenantId, async (tx) => {
     const apps = await tx
@@ -89,6 +101,23 @@ export default async function ApplicationsPage() {
           angelegt.
         </p>
       </header>
+
+      {exported ? (
+        <p
+          className="info-banner"
+          role="status"
+          style={{ marginBottom: "var(--space-4)" }}
+        >
+          Antragspaket erstellt und unter „Dokumente&ldquo; abgelegt.{" "}
+          <a
+            href={`/api/documents/${exported}/download`}
+            target="_blank"
+            rel="noreferrer"
+          >
+            Paket-PDF öffnen
+          </a>
+        </p>
+      ) : null}
 
       {rows.length === 0 ? (
         <div className="empty-state">

@@ -149,6 +149,7 @@ export async function exportApplicationPackage(
   if (!session) redirect("/auth/sign-in");
 
   const applicationId = z.string().uuid().parse(formData.get("applicationId"));
+  let exportedDocumentId: string | null = null;
 
   await withTenant(session.tenantId, async (tx) => {
     const [application] = await tx
@@ -187,6 +188,7 @@ export async function exportApplicationPackage(
         sha256: createHash("sha256").update(result.bytes).digest("hex"),
       })
       .returning({ id: documents.id });
+    exportedDocumentId = doc.id;
 
     await logActivity(tx, {
       tenantId: session.tenantId,
@@ -200,4 +202,9 @@ export async function exportApplicationPackage(
   });
 
   revalidatePath("/applications");
+  // The package lands in storage, not in the browser's download bar, so the
+  // page has to say so — otherwise the click looks like it did nothing.
+  if (exportedDocumentId) {
+    redirect(`/applications?exported=${exportedDocumentId}`);
+  }
 }

@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { PDFDocument } from "pdf-lib";
 import type { ApplicationData } from "./data";
+import { embedDocumentFonts } from "./fonts";
 
 // Real BA form templates (templates/pdf/). Field names were extracted from
 // the original AcroForms; the Trägerbescheinigung mapping was verified
@@ -114,7 +115,14 @@ export async function fillBaForm(
     }
   }
 
-  return doc.save();
+  // The BA templates declare Helvetica, whose WinAnsi encoder throws on a name
+  // like "Yılmaz" — and it throws inside save(), after every field is already
+  // set. Rendering the appearances ourselves with a Unicode font, then telling
+  // save() not to redo them, keeps any spelling a participant gave us.
+  const fonts = await embedDocumentFonts(doc);
+  form.updateFieldAppearances(fonts.regular);
+
+  return doc.save({ updateFieldAppearances: false });
 }
 
 // ---------------------------------------------------------------------------
