@@ -138,6 +138,52 @@ Supabase's limit long before real load does. `TRUST_PROXY=true` is what makes
 rate limiting key on the caller's actual address rather than one shared bucket
 — it is only safe because Vercel sets `x-forwarded-for` itself.
 
+### Deploying without connecting the repository
+
+Importing from GitHub needs the Vercel app installed on the account that owns
+the repository, which is not always yours to grant. The CLI has no such
+requirement: it uploads the working directory and builds it on Vercel.
+
+```bash
+pnpm dlx vercel login
+pnpm dlx vercel link          # creates or attaches the project
+pnpm dlx vercel env pull      # optional: check what is already set
+pnpm dlx vercel deploy --prod
+```
+
+The environment variables still have to exist **before** the first build,
+because `env.ts` runs during it. Fastest route: fill this in as a local
+`.env.production.local` (already gitignored) and paste it into the Vercel
+dashboard, which accepts a whole `.env` at once — the CLI's `env add` takes one
+variable per invocation.
+
+```dotenv
+DATABASE_URL=postgres://qcg_app.<ref>:<qcg_app-pw>@aws-0-eu-central-1.pooler.supabase.com:6543/postgres
+DB_POOL_MAX=1
+APP_BASE_URL=https://<your-domain>
+AUTH_SECRET=<openssl rand -base64 48>
+TOKEN_SECRET=<a different openssl rand -base64 48>
+TRUST_PROXY=true
+STORAGE_DRIVER=s3
+S3_BUCKET=documents
+S3_REGION=eu-central-1
+S3_ENDPOINT=https://<ref>.supabase.co/storage/v1/s3
+S3_FORCE_PATH_STYLE=true
+S3_ACCESS_KEY_ID=<from Storage S3 keys>
+S3_SECRET_ACCESS_KEY=<from Storage S3 keys>
+LEGAL_PROVIDER_NAME=<operator legal name>
+LEGAL_PROVIDER_ADDRESS=<street\npostcode city>
+LEGAL_PROVIDER_EMAIL=<contact address>
+```
+
+Deliberately absent: `MIGRATION_DATABASE_URL`. The web tier must not hold a
+connection that owns the schema and bypasses RLS.
+
+The trade-off is that nothing deploys itself afterwards: every release is
+another `vercel deploy --prod` from a checkout that is up to date. Worth
+switching to the git integration once someone can install the app on the
+repository.
+
 ### After the first deploy
 
 If you use Google sign-in, add `https://your-domain/auth/google/callback` to
