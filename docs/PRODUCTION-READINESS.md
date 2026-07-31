@@ -295,6 +295,44 @@ Closed:
 - **CI had no coverage gate.** `pnpm test:coverage` enforces 80% lines/branches/
   functions and runs in CI in place of `test:unit`.
 
+### 2026-07-31 live-test walkthrough — resolutions
+
+A scripted pass through all five roles surfaced three blockers and three
+follow-ups. All are closed:
+
+- **Any non-Windows-1252 name broke every PDF.** `pdf-lib`'s standard fonts
+  encode WinAnsi and throw on `ı`, `ş`, `ł` — so a Turkish or Polish surname
+  turned document generation, BA-form filling and signature stamping into 500s,
+  at `save()` time, after the work was done. `src/modules/documents/fonts.ts`
+  embeds Noto Sans (subsetted) and every draw path goes through it; AcroForm
+  paths render appearances with it before `flatten()` / `save()`, so the typed
+  value survives as a form value, not just as pixels. Scripts beyond
+  Latin/Greek/Cyrillic draw blank instead of failing. Pinned by
+  `tests/unit/pdf-unicode.test.ts`.
+- **"Antragspaket exportieren" always failed.** The cover sheet drew ✓/✗/⧗,
+  which the same encoder rejected. Now `[x] / [ ] / [~]`, which any font has,
+  and the action redirects with a banner linking the stored PDF — before, a
+  successful export looked like a no-op because the file only lands in
+  Dokumente.
+- **No way to create a real tenant.** `pnpm db:seed` was the only path and it
+  deletes every row first. `scripts/bootstrap-tenant.ts` (`pnpm
+  bootstrap:tenant`) inserts tenant + first admin + the 26 routing rules + the
+  42 template rows + an optional first measure, is re-runnable, and never
+  overwrites an existing admin.
+- **Mock WhatsApp reported success.** Without credentials the adapter logs and
+  returns ok, so the row read "gesendet" while nobody was told anything.
+  Automated sends now reroute to email when WhatsApp is mocked and email is
+  live (`resolveDeliveryChannel`), the dispatch activity records `mode`, and the
+  Verlauf labels a mock send as a simulation. A token that is present but is
+  obviously a stand-in ("EAAxxxx… // folgt") counts as unconfigured, so a
+  half-filled `.env` no longer fails every send at the provider.
+- **Aptitude invite mailed a placeholder URL.** Without
+  `APTITUDE_TEST_BASE_URL` the invite is refused with a banner instead of
+  sending a link to `example.com`.
+- **Consultants saw an employer setup button that did nothing.** The action
+  rejected them and redirected back; the button is now rendered only for
+  manager/admin.
+
 Deliberately open (design work, tracked separately):
 
 - **Pipeline/Reports hierarchy.** ~35 numbers before the first lead, the "Funnel"
