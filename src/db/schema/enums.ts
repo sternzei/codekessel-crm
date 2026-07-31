@@ -5,6 +5,16 @@ import { pgEnum } from "drizzle-orm/pg-core";
 
 export const userRole = pgEnum("user_role", ["consultant", "manager", "admin"]);
 
+// Whether an account may be used at all. Sign-in with Google lets anyone create
+// a row, so the row alone grants nothing: only `approved` can hold a session.
+// Separate from `active` on purpose — `pending` is "never yet let in", while an
+// inactive account is one that was let in and then switched off.
+export const userAccessStatus = pgEnum("user_access_status", [
+  "pending",
+  "approved",
+  "rejected",
+]);
+
 export const participantStatus = pgEnum("participant_status", [
   "new",
   "called",

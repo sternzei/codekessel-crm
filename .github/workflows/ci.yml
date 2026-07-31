@@ -57,6 +57,8 @@ jobs:
           LEGAL_PROVIDER_NAME=CI Demo GmbH
           LEGAL_PROVIDER_ADDRESS=Musterstraße 1\n80331 München
           LEGAL_PROVIDER_EMAIL=datenschutz@example.com
+          GOOGLE_CLIENT_ID=ci-only.apps.googleusercontent.com
+          GOOGLE_CLIENT_SECRET=ci-only-google-client-secret
           EOF
           # Strip accidental leading whitespace from the heredoc body.
           sed -i 's/^[[:space:]]*//' .env.local
@@ -124,6 +126,11 @@ jobs:
           # resolves, so the redirect the spec follows actually lands.
           APTITUDE_TEST_BASE_URL: https://example.com/eignungstest-demo
           RATE_LIMIT_DRIVER: postgres
+          # Dummy OAuth client so the Google entry point is rendered and the
+          # authorization redirect can be asserted. No token exchange happens in
+          # the suite, so these never have to be real.
+          GOOGLE_CLIENT_ID: ci-only.apps.googleusercontent.com
+          GOOGLE_CLIENT_SECRET: ci-only-google-client-secret
 
       - name: Playwright e2e
         run: pnpm test:e2e

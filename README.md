@@ -26,7 +26,9 @@
 > `MIGRATION_DATABASE_URL` (owner, migrations/seed only), `AUTH_SECRET`,
 > `TOKEN_SECRET` (must differ), `APP_BASE_URL`. Optional live integrations:
 > `APTITUDE_TEST_BASE_URL`, `WHATSAPP_ACCESS_TOKEN`,
-> `WHATSAPP_PHONE_NUMBER_ID`, `RESEND_API_KEY`, `RESEND_FROM_EMAIL`.
+> `WHATSAPP_PHONE_NUMBER_ID`, `RESEND_API_KEY`, `RESEND_FROM_EMAIL`,
+> `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET` (sign in with Google; new accounts
+> wait for an admin approval under `/users`).
 > Without these, the app stays in demo-safe mode: task routing and audit logs
 > run normally, while WhatsApp/email dispatch is mocked.
 

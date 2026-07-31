@@ -22,7 +22,24 @@
     "email": "E-Mail",
     "password": "Passwort",
     "submit": "Anmelden",
-    "error": "Anmeldung fehlgeschlagen. Bitte prüfen Sie E-Mail und Passwort."
+    "error": "Anmeldung fehlgeschlagen. Bitte prüfen Sie E-Mail und Passwort.",
+    "google": {
+      "submit": "Mit Google anmelden",
+      "divider": "oder",
+      "failed": "Die Anmeldung mit Google wurde abgebrochen oder ist fehlgeschlagen. Bitte versuchen Sie es erneut.",
+      "unverified": "Diese Google-Adresse ist nicht bestätigt. Bitte bestätigen Sie sie bei Google und versuchen Sie es erneut.",
+      "conflict": "Für diese E-Mail existiert bereits ein Konto mit einer anderen Google-Anmeldung. Bitte wenden Sie sich an die Administration.",
+      "closed": "Eine Registrierung ist auf diesem System nicht möglich. Bitte wenden Sie sich an die Administration."
+    },
+    "pending": {
+      "title": "Zugriff angefragt",
+      "body": "Ihre Anfrage liegt der Administration zur Prüfung vor. Sie erhalten Zugriff, sobald sie freigegeben wurde — eine erneute Anmeldung ist dafür nicht nötig.",
+      "rejectedTitle": "Zugriff abgelehnt",
+      "rejectedBody": "Für dieses Konto wurde kein Zugriff erteilt. Bei Fragen wenden Sie sich bitte an die Administration.",
+      "deactivatedTitle": "Konto deaktiviert",
+      "deactivatedBody": "Dieses Konto ist deaktiviert. Bitte wenden Sie sich an die Administration.",
+      "back": "Zurück zur Anmeldung"
+    }
   },
   "taskPage": {
     "invalidTitle": "Link nicht mehr gültig",
@@ -168,6 +185,17 @@
     "deactivate": "Deaktivieren",
     "activate": "Aktivieren",
     "resetPassword": "Passwort zurücksetzen",
+    "google": "Google-Anmeldung",
+    "requests": {
+      "title": "Zugriffsanfragen",
+      "subtitle": "Registrierungen über Google. Ohne Freigabe hat das Konto keinerlei Zugriff.",
+      "empty": "Keine offenen Anfragen.",
+      "requestedAt": "Angefragt am {date}",
+      "approve": "Freigeben",
+      "reject": "Ablehnen",
+      "rejected": "Abgelehnt",
+      "rejectedHint": "Abgelehnte Anfragen können jederzeit freigegeben werden."
+    },
     "roles": {
       "consultant": "Beratung",
       "manager": "Teamleitung",
@@ -176,6 +204,8 @@
     "banners": {
       "created": "Benutzer angelegt.",
       "updated": "Benutzer aktualisiert.",
+      "approved": "Zugriff freigegeben.",
+      "rejected": "Anfrage abgelehnt.",
       "passwordReset": "Neues temporäres Passwort gesetzt.",
       "forbidden": "Keine Berechtigung für diese Aktion.",
       "exists": "E-Mail ist in diesem Mandanten bereits vergeben.",
@@ -230,6 +260,10 @@
       "user_role_changed": "Rolle geändert",
       "user_active_changed": "Benutzerstatus geändert",
       "user_password_reset": "Passwort zurückgesetzt",
+      "user_registration_requested": "Zugriff über Google angefragt",
+      "user_google_linked": "Google-Konto verknüpft",
+      "user_access_approved": "Zugriff freigegeben",
+      "user_access_rejected": "Zugriff abgelehnt",
       "contact_note_added": "Notiz hinzugefügt",
       "appointment_scheduled": "Termin geplant"
     }

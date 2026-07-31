@@ -76,6 +76,7 @@ async function main() {
   const tenantId = tenant.id;
 
   const passwordHash = await hash("demo1234", 10);
+  const approved = "approved" as const;
   const [, , consultant] = await db
     .insert(users)
     .values([
@@ -85,6 +86,7 @@ async function main() {
         name: "Anna Adler",
         role: "admin" as const,
         passwordHash,
+        accessStatus: approved,
       },
       {
         tenantId,
@@ -92,6 +94,7 @@ async function main() {
         name: "Mara Manager",
         role: "manager" as const,
         passwordHash,
+        accessStatus: approved,
       },
       {
         tenantId,
@@ -99,6 +102,7 @@ async function main() {
         name: "Max Berger",
         role: "consultant" as const,
         passwordHash,
+        accessStatus: approved,
       },
     ])
     .returning();

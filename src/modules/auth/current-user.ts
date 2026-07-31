@@ -5,7 +5,11 @@ import type { SessionUser } from "./session";
 
 export type SignedSessionIdentity = Pick<SessionUser, "id" | "tenantId">;
 
-/** Resolves current role and active state from the database for each request. */
+/**
+ * Resolves current role, access status and active state from the database for
+ * each request. This is what makes an approval revocation take effect at once:
+ * the signed cookie survives, but the next request resolves to nothing.
+ */
 export const resolveActiveSessionUser = async (
   tx: DbHandle,
   identity: SignedSessionIdentity,
@@ -24,6 +28,7 @@ export const resolveActiveSessionUser = async (
         eq(users.id, identity.id),
         eq(users.tenantId, identity.tenantId),
         eq(users.active, true),
+        eq(users.accessStatus, "approved"),
       ),
     )
     .limit(1);

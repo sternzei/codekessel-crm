@@ -382,6 +382,71 @@ The verify step lists any `file_path` / `signed_file_path` /
 under this driver proves the table and its grants — but it is no longer an
 independent failure domain from the database check.
 
+### Sign in with Google, with an admin approval gate
+
+Two ways into the app: a password an admin set, or a Google account. Google
+sign-in is open to anyone, which is safe only because the account it creates
+grants nothing. The gate is `users.access_status` (`pending` → `approved` /
+`rejected`, migration `0020`), and it is enforced where a session is *resolved*,
+not merely where it is issued: `resolveActiveSessionUser` re-reads role, active
+and access status on every request, so approving or revoking takes effect on the
+next click without touching the cookie.
+
+**What happens on a first Google sign-in**
+
+1. `/auth/google/start` mints `state`, `nonce` and a PKCE verifier into one
+   signed, httpOnly cookie scoped to `/auth/google` and valid for 10 minutes.
+2. Google returns to `/auth/google/callback`, which checks `state` before
+   spending the code, drops the flow cookie (one flow, one attempt), exchanges
+   the code with the PKCE verifier, and verifies the ID token's signature
+   against Google's JWKS with issuer and audience pinned.
+3. The claims are then judged in `claims.ts`: an unverified `email` and a
+   `nonce` that does not match the flow are both rejections.
+4. The account is resolved: a known Google subject signs in, a matching verified
+   address links to the existing account, and anything else creates a row with
+   role `consultant`, no password and status `pending`.
+5. `pending` and `rejected` land on `/auth/pending`. No session is issued.
+
+**What an admin sees.** `/users` opens with a "Zugriffsanfragen" section listing
+the waiting requests. Approving assigns the role in the same step; rejecting
+keeps the row (so the same Google account cannot quietly re-register) and can be
+reversed later. Both decisions are written to the activity log, together with
+`user_registration_requested` and `user_google_linked`.
+
+**Properties worth keeping if this code is touched**
+
+- The row alone is inert. Password login (`auth_lookup_user`) and session
+  resolution both require `access_status = 'approved'`.
+- Linking by email is only sound because Google asserts `email_verified`. If
+  that check is ever relaxed, this becomes an account-takeover path.
+- The two match kinds have different reach on purpose. A Google subject is
+  globally unique and was linked by an explicit act, so it matches in any
+  tenant; an address matches only inside the registration tenant. Recognising
+  an address across tenants would let a verified stranger land in whichever
+  row the database returned first — the same address may legitimately exist in
+  two tenants.
+- A second Google account cannot claim an address that is already linked
+  (`auth_link_google_subject` refuses; the callback answers `google_conflict`).
+- Registration happens before a tenant context exists, so it goes through narrow
+  `SECURITY DEFINER` functions rather than opening the RLS policies on `users`.
+- `/auth/google/start` and the callback are rate limited per client IP, and a
+  callback that does not end in a sign-in spends budget too — so one address
+  cannot sit there creating requests. Against a distributed flood the per-IP
+  budget is useless, so the queue also has a hard ceiling of 200 pending rows
+  per tenant, beyond which registration is refused.
+- Requested scopes are `openid email profile` only — an approval here never
+  turns into access to anyone's Gmail or Drive.
+
+**Setup.** In Google Cloud Console create an OAuth client of type *Web
+application* and register `<APP_BASE_URL>/auth/google/callback` as the redirect
+URI, then set `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` (both or neither —
+`env.ts` rejects one without the other). Unset, the button is not rendered and
+the routes redirect to the password form. `REGISTRATION_TENANT_ID` is only
+needed when one database holds several tenants; with a single tenant it is
+resolved automatically, and with several and no value set, registration is
+refused rather than guessed — including the address match, so nobody lands in a
+tenant by accident.
+
 ### Required production environment
 
 Validated centrally in `src/lib/env.ts`; see `.env.example` for the full list.
@@ -423,6 +488,8 @@ override its dev password (`ALTER ROLE qcg_app PASSWORD …` / secret manager).
 | `S3_BUCKET` (+ region/keys) | if `s3` | Enforced at startup. |
 | `ALLOW_LOCAL_STORAGE_IN_PROD` | if local disk | `true` only on a **single always-on VM** with a persistent volume for uploads/PDFs. Also marks a single-VM deploy, which permits a localhost `APP_BASE_URL`. |
 | `RESEND_API_KEY` / `RESEND_FROM_EMAIL` | optional | Email goes live when both set; otherwise mock. |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | optional | Both or neither. Enables "Mit Google anmelden"; new accounts wait for an approval under `/users`. |
+| `REGISTRATION_TENANT_ID` | if multi-tenant | Which tenant a self-registration joins. Unset with several tenants, registration is refused. |
 | WhatsApp Cloud vars | parked | Interim UI uses wa.me until Meta credentials land. |
 
 See also [`.env.example`](../.env.example).

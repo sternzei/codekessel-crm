@@ -47,6 +47,9 @@ export async function createSession(user: SessionUser): Promise<void> {
   });
 }
 
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 const getCachedSession = cache(async (): Promise<SessionUser | null> => {
   const store = await cookies();
   const token = store.get(SESSION_COOKIE)?.value;
@@ -54,9 +57,15 @@ const getCachedSession = cache(async (): Promise<SessionUser | null> => {
 
   try {
     const { payload } = await jwtVerify(token, secret);
+    // A cookie whose claims are the wrong shape is no session at all. The id
+    // and tenant are checked against the UUID form before they reach the
+    // database: otherwise a malformed pair turns every page into a 500 (the
+    // query rejects on the cast) instead of a clean redirect to sign-in.
     if (
       typeof payload.sub !== "string" ||
       typeof payload.tid !== "string" ||
+      !UUID_PATTERN.test(payload.sub) ||
+      !UUID_PATTERN.test(payload.tid) ||
       typeof payload.email !== "string" ||
       typeof payload.name !== "string" ||
       (payload.role !== "consultant" &&

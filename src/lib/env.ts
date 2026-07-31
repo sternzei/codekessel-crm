@@ -63,6 +63,16 @@ const envSchema = z.object({
   // Resend email. Optional: without both vars the email adapter stays mock.
   RESEND_API_KEY: z.string().optional(),
   RESEND_FROM_EMAIL: z.string().optional(),
+  // Sign in with Google (OIDC). Optional: without both vars the button is not
+  // rendered and the routes answer as if they did not exist, so a half-finished
+  // Google Cloud setup cannot become a half-open door.
+  GOOGLE_CLIENT_ID: z.string().optional(),
+  GOOGLE_CLIENT_SECRET: z.string().optional(),
+  // Which tenant a self-registration joins. Only needed when the deployment
+  // holds more than one tenant — with a single one it is resolved from the
+  // database, and with several an unset value disables registration rather
+  // than guessing.
+  REGISTRATION_TENANT_ID: z.string().uuid().optional(),
   // Operator identity for the public Impressum (§5 DDG) and the privacy notice
   // (Art. 13 DSGVO). Participants reach /t/[token] pages that collect
   // SV-Nummer, IBAN and signatures, so these pages are mandatory — the first
@@ -88,6 +98,16 @@ const envSchema = z.object({
       code: z.ZodIssueCode.custom,
       path: ["S3_BUCKET"],
       message: "S3_BUCKET is required when STORAGE_DRIVER=s3",
+    });
+  }
+  // A client id without its secret cannot complete the code exchange, and the
+  // failure would only show up after a user has already been sent to Google.
+  if (Boolean(value.GOOGLE_CLIENT_ID) !== Boolean(value.GOOGLE_CLIENT_SECRET)) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["GOOGLE_CLIENT_SECRET"],
+      message:
+        "GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be set together (or not at all)",
     });
   }
   if (!isProduction) return;
@@ -191,6 +211,9 @@ export const env = envSchema.parse({
   TRUST_PROXY: process.env.TRUST_PROXY,
   RESEND_API_KEY: process.env.RESEND_API_KEY,
   RESEND_FROM_EMAIL: process.env.RESEND_FROM_EMAIL,
+  GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID,
+  GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET,
+  REGISTRATION_TENANT_ID: process.env.REGISTRATION_TENANT_ID,
   LEGAL_PROVIDER_NAME: process.env.LEGAL_PROVIDER_NAME,
   LEGAL_PROVIDER_ADDRESS: process.env.LEGAL_PROVIDER_ADDRESS,
   LEGAL_PROVIDER_EMAIL: process.env.LEGAL_PROVIDER_EMAIL,

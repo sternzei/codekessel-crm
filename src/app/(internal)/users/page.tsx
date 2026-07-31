@@ -8,18 +8,22 @@ import {
 } from "@/modules/auth/authorization";
 import { getSession } from "@/modules/auth/session";
 import {
+  approveUserAccess,
   createUser,
+  rejectUserAccess,
   resetUserPassword,
   setUserActive,
   setUserRole,
 } from "@/modules/users/actions";
-import { listTenantUsers } from "@/modules/users/queries";
+import { listAccessRequests, listTenantUsers } from "@/modules/users/queries";
 
 export const dynamic = "force-dynamic";
 
 const BANNER_KEYS = [
   "created",
   "updated",
+  "approved",
+  "rejected",
   "passwordReset",
   "forbidden",
   "exists",
@@ -44,10 +48,21 @@ export default async function UsersPage({
   const { result } = await searchParams;
   const banner = isBannerKey(result) ? result : undefined;
 
-  const rows = await withTenant(session.tenantId, (tx) => listTenantUsers(tx));
+  const { rows, requests } = await withTenant(session.tenantId, async (tx) => ({
+    rows: await listTenantUsers(tx),
+    requests: await listAccessRequests(tx),
+  }));
   const canCreateAdmin =
     canAssignUserRole({ actorRole: session.role, targetRole: "admin" }) ===
     "allowed";
+  const assignableRoles = (["consultant", "manager", "admin"] as const).filter(
+    (role) =>
+      canAssignUserRole({ actorRole: session.role, targetRole: role }) ===
+      "allowed",
+  );
+  const dateFormatter = new Intl.DateTimeFormat("de-DE", {
+    dateStyle: "medium",
+  });
 
   return (
     <>
@@ -69,6 +84,73 @@ export default async function UsersPage({
           {t(`banners.${banner}`)}
         </p>
       ) : null}
+
+      <section className="card" style={{ marginBottom: "var(--space-6)" }}>
+        <h2 style={{ marginBottom: "var(--space-2)" }}>
+          {t("requests.title")}
+          {requests.length > 0 ? ` (${requests.length})` : ""}
+        </h2>
+        <p className="meta" style={{ marginBottom: "var(--space-4)" }}>
+          {t("requests.subtitle")}
+        </p>
+
+        {requests.length === 0 ? (
+          <p className="empty-state">{t("requests.empty")}</p>
+        ) : (
+          <div className="data-list">
+            {requests.map((request) => (
+              <article
+                key={request.id}
+                className="data-row"
+                style={{ gridTemplateColumns: "1fr", gap: "var(--space-3)" }}
+              >
+                <div>
+                  <div className="title">{request.name}</div>
+                  <div className="meta">
+                    {request.email} ·{" "}
+                    {t("requests.requestedAt", {
+                      date: dateFormatter.format(request.createdAt),
+                    })}
+                  </div>
+                </div>
+                <div
+                  className="inline-form"
+                  style={{ flexWrap: "wrap", gap: "var(--space-2)" }}
+                >
+                  <form action={approveUserAccess} className="inline-form">
+                    <input type="hidden" name="userId" value={request.id} />
+                    <select
+                      id={`request-role-${request.id}`}
+                      name="role"
+                      defaultValue="consultant"
+                      aria-label={t("role")}
+                    >
+                      {assignableRoles.map((role) => (
+                        <option key={role} value={role}>
+                          {t(`roles.${role}`)}
+                        </option>
+                      ))}
+                    </select>
+                    <button type="submit" className="button button--sm">
+                      {t("requests.approve")}
+                    </button>
+                  </form>
+                  <form action={rejectUserAccess}>
+                    <input type="hidden" name="userId" value={request.id} />
+                    <button
+                      type="submit"
+                      className="button button--sm button--ghost"
+                      aria-label={t("requests.reject")}
+                    >
+                      {t("requests.reject")}
+                    </button>
+                  </form>
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
 
       <section className="card" style={{ marginBottom: "var(--space-6)" }}>
         <h2 style={{ marginBottom: "var(--space-4)" }}>{t("create")}</h2>
@@ -154,11 +236,43 @@ export default async function UsersPage({
                   <div className="title">{user.name}</div>
                   <div className="meta">
                     {user.email} · {t(`roles.${user.role}`)} ·{" "}
-                    {user.active ? t("active") : t("inactive")}
+                    {user.accessStatus === "rejected"
+                      ? t("requests.rejected")
+                      : user.active
+                        ? t("active")
+                        : t("inactive")}
+                    {user.hasGoogleLogin ? ` · ${t("google")}` : ""}
                   </div>
                 </div>
 
-                {canMutate ? (
+                {canMutate && user.accessStatus === "rejected" ? (
+                  <div
+                    className="inline-form"
+                    style={{ flexWrap: "wrap", gap: "var(--space-2)" }}
+                  >
+                    <form action={approveUserAccess} className="inline-form">
+                      <input type="hidden" name="userId" value={user.id} />
+                      <select
+                        id={`rejected-role-${user.id}`}
+                        name="role"
+                        defaultValue="consultant"
+                        aria-label={t("role")}
+                      >
+                        {assignableRoles.map((role) => (
+                          <option key={role} value={role}>
+                            {t(`roles.${role}`)}
+                          </option>
+                        ))}
+                      </select>
+                      <button type="submit" className="button button--sm">
+                        {t("requests.approve")}
+                      </button>
+                    </form>
+                    <p className="meta" style={{ margin: 0 }}>
+                      {t("requests.rejectedHint")}
+                    </p>
+                  </div>
+                ) : canMutate ? (
                   <div
                     className="inline-form"
                     style={{ flexWrap: "wrap", gap: "var(--space-2)" }}

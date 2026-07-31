@@ -54,6 +54,13 @@ services:
       TRUST_PROXY: ${TRUST_PROXY:-true}
       RESEND_API_KEY: ${RESEND_API_KEY:-}
       RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-}
+      # Sign in with Google. Unset, the button is hidden and /auth/google/*
+      # redirects to the password form. A new Google account always lands in the
+      # approval queue under /users before it can do anything.
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      # Only needed with more than one tenant in the same database.
+      REGISTRATION_TENANT_ID: ${REGISTRATION_TENANT_ID:-}
       S3_BUCKET: ${S3_BUCKET:-}
       S3_REGION: ${S3_REGION:-}
       S3_ENDPOINT: ${S3_ENDPOINT:-}

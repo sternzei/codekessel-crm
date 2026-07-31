@@ -106,6 +106,9 @@ async function ensureAdmin(
     name: input.adminName,
     role: "admin",
     passwordHash: await hash(input.adminPassword, BCRYPT_COST),
+    // The first account cannot wait for an approval — it is the one that
+    // approves everybody else.
+    accessStatus: "approved",
   });
   console.log(`admin ${input.adminEmail} created`);
 }

@@ -86,6 +86,7 @@ Optional, aber für einen echten Testtag relevant:
 | Variable | Wirkung wenn gesetzt | Wirkung wenn leer |
 |---|---|---|
 | `RESEND_API_KEY` + `RESEND_FROM_EMAIL` | E-Mails gehen wirklich raus | Mock: nur Logzeile |
+| `GOOGLE_CLIENT_ID` + `GOOGLE_CLIENT_SECRET` | Anmeldung mit Google möglich, neue Konten warten auf Freigabe | Knopf wird nicht angezeigt, nur Passwort-Anmeldung |
 | `WHATSAPP_ACCESS_TOKEN` + `WHATSAPP_PHONE_NUMBER_ID` | WhatsApp geht wirklich raus | automatische Nachrichten weichen auf E-Mail aus, sofern eine Adresse vorliegt und Resend konfiguriert ist |
 | `APTITUDE_TEST_BASE_URL` | „Test starten" führt zum echten Testanbieter | Einladung wird verweigert (Hinweis am Lead), damit niemand einen Link ins Leere bekommt |
 | `OPENREGISTER_API_KEY` | Register-Import sucht echte Firmen (kostet Credits) | Mock-Firmen |
@@ -119,7 +120,25 @@ MEASURE_START_DATE="2026-09-01" MEASURE_COST_EUR="8900.00" \
 
 Ein vorhandenes Admin-Konto wird bewusst nicht überschrieben; ein Passwort
 setzt man in der Oberfläche unter **Benutzer** zurück. Alle weiteren Konten
-entstehen ebenfalls dort.
+entstehen ebenfalls dort — oder über die Anmeldung mit Google (1.4a).
+
+#### 1.4a Anmeldung mit Google (optional)
+
+Sind `GOOGLE_CLIENT_ID` und `GOOGLE_CLIENT_SECRET` gesetzt, erscheint auf der
+Anmeldeseite zusätzlich **Mit Google anmelden**. Der Redirect
+`<APP_BASE_URL>/auth/google/callback` muss in der Google Cloud Console als
+zulässige Redirect-URI hinterlegt sein, sonst bricht Google den Vorgang ab.
+
+Wer sich zum ersten Mal so anmeldet, bekommt **kein** Konto mit Zugriff,
+sondern eine Anfrage: die Person landet auf „Zugriff angefragt", und unter
+**Benutzer** steht die Anfrage oben im Abschnitt *Zugriffsanfragen*. Erst mit
+der Freigabe — bei der die Rolle gewählt wird — kann sie überhaupt etwas sehen.
+Ablehnen sperrt dauerhaft und lässt sich später wieder freigeben.
+
+Zwei Punkte für den Testtag: eine bereits vorhandene E-Mail-Adresse (etwa das
+Bootstrap-Admin-Konto) wird beim ersten Google-Login mit dem Google-Konto
+**verknüpft** und meldet sich sofort an, weil sie längst freigegeben ist. Und
+eine Freigabe wirkt sofort, ohne erneute Anmeldung — genauso wie ein Entzug.
 
 `pnpm db:seed` ist das Gegenteil davon: eine Demo-Vorrichtung, die **jede Zeile
 löscht** und die `@demo.de`-Konten neu schreibt. Auf einer Datenbank mit echten
@@ -157,6 +176,7 @@ die Teilnehmer- und Arbeitgeberansicht ohne Umweg zu zeigen.
 | Arbeitgeber-Setup-Link | **nein** (Knopf wird nicht angezeigt) | ja | ja |
 | Berichte | nur eigene Zahlen | mandantenweit | mandantenweit |
 | Benutzer | nein | ja (keine Admins) | ja |
+| Zugriffsanfragen freigeben | nein | ja (nicht als Administration) | ja |
 | Register-Import | nein | nein | ja |
 
 Zwei Sperren, die im Test auffallen werden und so gewollt sind: niemand ändert
