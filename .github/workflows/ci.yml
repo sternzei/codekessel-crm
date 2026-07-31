@@ -119,6 +119,10 @@ jobs:
           LEGAL_PROVIDER_NAME: CI Demo GmbH
           LEGAL_PROVIDER_ADDRESS: Musterstraße 1\n80331 München
           LEGAL_PROVIDER_EMAIL: datenschutz@example.com
+          # Without a test provider the invite action refuses to send, which the
+          # aptitude spec would (correctly) see as a blocked invite. example.com
+          # resolves, so the redirect the spec follows actually lands.
+          APTITUDE_TEST_BASE_URL: https://example.com/eignungstest-demo
           RATE_LIMIT_DRIVER: postgres
 
       - name: Playwright e2e

@@ -188,6 +188,7 @@
     "empty": "Noch keine Ereignisse.",
     "by": "von {name}",
     "system": "System",
+    "simulated": "Simulation — kein echter Versand",
     "events": {
       "status_changed": "Status geändert",
       "lead_claimed": "Lead übernommen",

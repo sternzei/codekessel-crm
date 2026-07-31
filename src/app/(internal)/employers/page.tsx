@@ -2,6 +2,7 @@ import { asc } from "drizzle-orm";
 import { redirect } from "next/navigation";
 import { withTenant } from "@/db/client";
 import { employers } from "@/db/schema";
+import { canManageTenantRecords } from "@/modules/auth/authorization";
 import { getSession } from "@/modules/auth/session";
 import { createEmployerSetupLink } from "@/modules/tasks/actions";
 import { updateEmployerBaData } from "@/modules/employers/actions-internal";
@@ -30,6 +31,9 @@ export default async function EmployersPage({
   const session = await getSession();
   if (!session) redirect("/auth/sign-in");
   const { link, badata } = await searchParams;
+  // The action rejects consultants and redirects back here, which looks like a
+  // dead button. Render it only for the roles that can actually mint a link.
+  const canMintSetupLink = canManageTenantRecords(session.role);
 
   const rows = await withTenant(session.tenantId, (tx) =>
     tx.select().from(employers).orderBy(asc(employers.companyName)),
@@ -88,7 +92,7 @@ export default async function EmployersPage({
                   </div>
                 </div>
                 <span className={badge.cls}>{badge.label}</span>
-                {e.status !== "confirmed" ? (
+                {canMintSetupLink && e.status !== "confirmed" ? (
                   <form action={createEmployerSetupLink}>
                     <input type="hidden" name="employerId" value={e.id} />
                     <button type="submit" className="button button--sm button--ghost">

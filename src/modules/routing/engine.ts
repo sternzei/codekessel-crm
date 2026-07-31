@@ -5,6 +5,7 @@ import { reminderJobs, routingRules, tasks } from "@/db/schema";
 import { logger } from "@/lib/logger";
 import { logActivity } from "@/modules/audit/log";
 import { buildTaskTemplateKey, hasLandingPage } from "@/modules/messaging/catalog";
+import { resolveDeliveryChannel } from "@/modules/messaging/channel";
 import { enqueueAndDispatchOnHandle } from "@/modules/messaging/outbox";
 import { resolveRecipient } from "@/modules/messaging/send";
 import { isTemplateRenderError } from "@/modules/messaging/templates";
@@ -226,11 +227,16 @@ async function dispatchExternal(
   const recipient = await resolveRecipient(tx, rule.ownerKind, subjectId);
   if (!recipient) return;
 
-  // magic_link tasks notify via WhatsApp when a phone exists, else email.
-  const channel =
+  // magic_link tasks notify via WhatsApp when a phone exists, else email …
+  const preferredChannel =
     rule.channel === "email" || (rule.channel === "magic_link" && !recipient.phone)
       ? ("email" as const)
       : ("whatsapp" as const);
+  // … and email also wins over a WhatsApp send that would only be mocked.
+  const channel = resolveDeliveryChannel({
+    preferred: preferredChannel,
+    recipient,
+  });
 
   try {
     await enqueueAndDispatchOnHandle(tx, {

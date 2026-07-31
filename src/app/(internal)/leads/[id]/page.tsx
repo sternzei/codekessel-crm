@@ -50,6 +50,7 @@ export default async function LeadDetailPage({
     access?: "must_claim" | "forbidden";
     assignment?: "saved" | "forbidden";
     activityLimit?: string;
+    aptitude?: string;
   }>;
 }) {
   const session = await getSession();
@@ -66,6 +67,7 @@ export default async function LeadDetailPage({
     access,
     assignment,
     activityLimit: activityLimitRaw,
+    aptitude,
   } =
     await searchParams;
   const tStatus = await getTranslations("status.participant");
@@ -161,6 +163,18 @@ export default async function LeadDetailPage({
           Statuswechsel blockiert: Dieser Schritt ist im Lead-Funnel nicht
           zulässig. Bitte die Zwischenschritte einhalten oder den Lead als
           „verloren“ markieren.
+        </p>
+      ) : null}
+
+      {aptitude === "unconfigured" ? (
+        <p
+          className="gate-banner"
+          role="alert"
+          style={{ marginBottom: "var(--space-6)" }}
+        >
+          Eignungstest nicht eingeladen: Es ist keine Test-Adresse hinterlegt
+          (APTITUDE_TEST_BASE_URL). Sonst würde die teilnehmende Person einen
+          Link ins Leere erhalten.
         </p>
       ) : null}
 
@@ -515,10 +529,17 @@ export default async function LeadDetailPage({
                     "status" in entry.meta
                       ? ` → ${(entry.meta as { status?: string }).status}`
                       : "";
+                  // A send without provider credentials is logged as
+                  // "gesendet" too, so say which one this was.
+                  const isSimulated =
+                    entry.meta !== null &&
+                    typeof entry.meta === "object" &&
+                    (entry.meta as { mode?: string }).mode === "mock";
                   return (
                     <li key={entry.id}>
                       <span className="event">{label}</span>
                       {statusMeta}
+                      {isSimulated ? ` (${tActivity("simulated")})` : ""}
                       {actorLabel
                         ? ` · ${tActivity("by", { name: actorLabel })}`
                         : ""}{" "}

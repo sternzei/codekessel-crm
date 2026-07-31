@@ -21,7 +21,10 @@ import { resolveParticipantWriteAccess } from "@/modules/auth/participant-scope"
 import { resolveTaskWriteAccess } from "@/modules/auth/task-scope";
 import { getSession, type SessionUser } from "@/modules/auth/session";
 import { processTransition } from "@/modules/routing/engine";
-import { resolveAptitudeTestUrl } from "@/modules/aptitude-tests/config";
+import {
+  isAptitudeTestConfigured,
+  resolveAptitudeTestUrl,
+} from "@/modules/aptitude-tests/config";
 import {
   assertAppointmentAvailability,
   assertAptitudeInviteAvailability,
@@ -898,6 +901,12 @@ export async function setAppointmentStatus(formData: FormData): Promise<void> {
 export async function inviteAptitudeTest(formData: FormData): Promise<void> {
   const session = await requireSession();
   const participantId = z.string().uuid().parse(formData.get("participantId"));
+
+  // Inviting without a configured provider would send the participant a link to
+  // the placeholder URL, so refuse before anything is written or dispatched.
+  if (!isAptitudeTestConfigured()) {
+    redirect(`${leadPath(participantId)}?aptitude=unconfigured`);
+  }
 
   let gateBlocked = false;
   await withTenant(session.tenantId, async (tx) => {

@@ -9,7 +9,7 @@ import {
   type ParticipantAccessContext,
 } from "@/modules/auth/authorization";
 import { buildTaskAccessCondition } from "@/modules/auth/task-scope";
-import { getAdapter } from "./adapters";
+import { getAdapter, resolveAdapterMode } from "./adapters";
 import { recordOutboundDelivery } from "./deliveries";
 import { renderTemplate } from "./templates";
 import { canApprove, canCancel, canReject, statusForSendResult } from "./outbound-status";
@@ -228,6 +228,9 @@ export async function enqueueAndDispatchOnHandle(
       recipientKind: row.recipientKind,
       outboundMessageId: row.id,
       source: params.source,
+      // Without provider credentials the adapter is a mock that reports
+      // success, so "gesendet" alone cannot be trusted. Record which it was.
+      mode: resolveAdapterMode(channel),
     },
   });
   return result.ok ? "dispatched" : "failed";

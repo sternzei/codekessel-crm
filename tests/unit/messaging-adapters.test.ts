@@ -26,23 +26,49 @@ const message: OutboundMessage = {
   taskId: "task-1",
 };
 
+const WHATSAPP_TOKEN = "EAAG9ZBpZAcZAuIBO7ZCq0mVdF4kKq2LpXnQvRt3Yw8ZbNhU";
+const RESEND_KEY = "re_9fKq2LpXnQvRt3Yw8ZbNhU4kKq2LpXnQ";
+
 test("uses mock mode until the required channel credentials are present", () => {
   assert.equal(resolveAdapterMode("whatsapp", {}), "mock");
   assert.equal(
     resolveAdapterMode("whatsapp", {
-      WHATSAPP_ACCESS_TOKEN: "token",
-      WHATSAPP_PHONE_NUMBER_ID: "123",
+      WHATSAPP_ACCESS_TOKEN: WHATSAPP_TOKEN,
+      WHATSAPP_PHONE_NUMBER_ID: "123456789012345",
     }),
     "live",
   );
-  assert.equal(resolveAdapterMode("email", { RESEND_API_KEY: "key" }), "mock");
+  assert.equal(
+    resolveAdapterMode("email", { RESEND_API_KEY: RESEND_KEY }),
+    "mock",
+  );
   assert.equal(
     resolveAdapterMode("email", {
-      RESEND_API_KEY: "key",
+      RESEND_API_KEY: RESEND_KEY,
       RESEND_FROM_EMAIL: "noreply@example.de",
     }),
     "live",
   );
+});
+
+test("a token that is only a stand-in keeps the channel in mock mode", () => {
+  // Exactly what a pre-go-live .env looks like: the variable exists, the value
+  // does not. Treating it as live would fail every send at the provider.
+  const placeholders = [
+    "EAAxxxx...",
+    "EAAxxxx... // wird vor dem 15.08. ergänzt",
+    "TODO",
+  ];
+  for (const token of placeholders) {
+    assert.equal(
+      resolveAdapterMode("whatsapp", {
+        WHATSAPP_ACCESS_TOKEN: token,
+        WHATSAPP_PHONE_NUMBER_ID: "123456789012345",
+      }),
+      "mock",
+      token,
+    );
+  }
 });
 
 test("builds a WhatsApp Cloud API text payload without logging PII", () => {

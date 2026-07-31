@@ -17,6 +17,7 @@ import {
   GENERIC_REMINDER_TEMPLATE_KEY,
   hasLandingPage,
 } from "@/modules/messaging/catalog";
+import { resolveDeliveryChannel } from "@/modules/messaging/channel";
 import { enqueueAndDispatchOnHandle } from "@/modules/messaging/outbox";
 import { resolveRecipient } from "@/modules/messaging/send";
 import { ACTIVE_TASK_STATUSES, isActiveTaskStatus } from "@/modules/tasks/status";
@@ -214,7 +215,7 @@ async function sendExternalReminder(
   const outcome = await enqueueAndDispatchOnHandle(db, {
     tenantId: task.tenantId,
     taskId: task.id,
-    channel,
+    channel: resolveDeliveryChannel({ preferred: channel, recipient }),
     templateKey: templateKey ?? GENERIC_REMINDER_TEMPLATE_KEY,
     recipient,
     source: "reminder",

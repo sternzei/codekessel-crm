@@ -72,6 +72,12 @@ services:
       LEGAL_VAT_ID: ${LEGAL_VAT_ID:-}
       LEGAL_SUPERVISORY_AUTHORITY: ${LEGAL_SUPERVISORY_AUTHORITY:-}
       LEGAL_PRIVACY_CONTACT: ${LEGAL_PRIVACY_CONTACT:-}
+      # Provider of the aptitude test. Unset, the invite action refuses to send
+      # rather than mailing participants a placeholder link.
+      APTITUDE_TEST_BASE_URL: ${APTITUDE_TEST_BASE_URL:-}
+      # Name + city printed on the generated BA paperwork.
+      PROVIDER_NAME: ${PROVIDER_NAME:-}
+      PROVIDER_CITY: ${PROVIDER_CITY:-}
     volumes:
       - qcg-uploads:/app/var
     ports:
@@ -130,6 +136,9 @@ services:
       LEGAL_VAT_ID: ${LEGAL_VAT_ID:-}
       LEGAL_SUPERVISORY_AUTHORITY: ${LEGAL_SUPERVISORY_AUTHORITY:-}
       LEGAL_PRIVACY_CONTACT: ${LEGAL_PRIVACY_CONTACT:-}
+      APTITUDE_TEST_BASE_URL: ${APTITUDE_TEST_BASE_URL:-}
+      PROVIDER_NAME: ${PROVIDER_NAME:-}
+      PROVIDER_CITY: ${PROVIDER_CITY:-}
     volumes:
       # Nothing is written here under STORAGE_DRIVER=db; kept mounted so an
       # upgraded deployment can still run scripts/migrate-storage-to-db.ts over

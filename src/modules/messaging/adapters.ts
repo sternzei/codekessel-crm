@@ -17,16 +17,33 @@ export type AdapterMode = "live" | "mock";
 /** Abort hung Resend / Graph calls so the outbox worker cannot stall forever. */
 const PROVIDER_REQUEST_TIMEOUT_MS = 15_000;
 
+/**
+ * Whether an API token is real rather than a stand-in. Half-filled .env files
+ * are the norm before go-live ("EAAxxxx… // Token folgt am 15.08."), and
+ * treating those as live means every send fails at the provider instead of
+ * taking the mock path the deployment is actually in. Provider tokens are long
+ * single words, so neither rule can reject a genuine one.
+ */
+const MIN_TOKEN_LENGTH = 30;
+
+const isRealToken = (value: string | undefined): boolean => {
+  const token = value?.trim() ?? "";
+  if (token.length < MIN_TOKEN_LENGTH) return false;
+  return !/\s/.test(token) && !/x{4,}/i.test(token);
+};
+
 export function resolveAdapterMode(
   channel: MessageChannel,
   env: AdapterEnv = process.env,
 ): AdapterMode {
   if (channel === "whatsapp") {
-    return env.WHATSAPP_ACCESS_TOKEN && env.WHATSAPP_PHONE_NUMBER_ID
+    return isRealToken(env.WHATSAPP_ACCESS_TOKEN) && env.WHATSAPP_PHONE_NUMBER_ID
       ? "live"
       : "mock";
   }
-  return env.RESEND_API_KEY && env.RESEND_FROM_EMAIL ? "live" : "mock";
+  return isRealToken(env.RESEND_API_KEY) && env.RESEND_FROM_EMAIL
+    ? "live"
+    : "mock";
 }
 
 /**
