@@ -20,11 +20,12 @@ all live in it. Without it the app looks fine and quietly stops chasing anyone.
 
 ## 1. Supabase project
 
-Create a project in the **Frankfurt (eu-central-1)** region and keep three
-things from the dashboard:
+Create a project in the **Frankfurt (eu-central-1)** region. Both connection
+strings live behind the **Connect** button at the top of the project dashboard
+(not under project settings, where they used to be). Keep three things:
 
-- **Direct connection** (`Project settings → Database`), used for migrations
-  and by the worker. Runs as `postgres`, the schema owner.
+- **Direct connection**, used for migrations and by the worker. Runs as
+  `postgres`, the schema owner.
 - **Transaction pooler** connection (port `6543`), used by the web tier. Every
   serverless instance holds its own pool, so they must be multiplexed.
 - **Project ref**, the subdomain in `https://<ref>.supabase.co`.
@@ -79,9 +80,19 @@ Create a **private** bucket (`documents`, say). Private is not a detail: these
 objects are medical-adjacent employment records, and a public bucket makes
 every one of them a URL away from anyone.
 
-Then create S3 access keys under `Project settings → Storage → S3 access keys`.
-The app talks to Storage through its S3-compatible endpoint, which is why no
+Then open `Storage → Configuration → S3`, enable the S3 protocol, and generate
+an access key pair. The secret is shown once. That page also prints the
+endpoint and region to use.
+
+Note the host: the S3 endpoint is `https://<ref>.storage.supabase.co/...`, not
+`https://<ref>.supabase.co/...` like the rest of the project's API. Path-style
+addressing is required too (`S3_FORCE_PATH_STYLE=true`); virtual-hosted style
+is not supported. The app talks to Storage over this protocol, which is why no
 Supabase SDK appears anywhere in this codebase.
+
+These keys bypass RLS and reach every bucket, so they belong on a server and
+nowhere else. Nothing in this app ever sends them to a browser: the browser
+only ever receives a presigned URL for one object.
 
 Uploads go **straight from the participant's browser to the bucket**. The app
 signs a URL for one object, with the content type and the exact byte count
@@ -90,9 +101,10 @@ point it reads the bytes back and checks that they really are a PDF or an image
 before filing anything. A serverless request body is capped at 4.5 MB; a
 scanned document is regularly larger.
 
-For that to work the bucket must accept cross-origin `PUT` from your app's
-domain. Supabase allows this by default; if you have tightened CORS, add the
-production domain back.
+For that to work, Storage must accept a cross-origin `PUT` from your app's
+domain. If uploads fail in the browser while the server-side probe succeeds,
+CORS is the first thing to check — allow the production origin with `PUT` and
+`HEAD`, and expose `ETag`.
 
 ---
 
@@ -121,7 +133,7 @@ them at the production database would let a branch write to real data.
 | `STORAGE_DRIVER` | `s3` |
 | `S3_BUCKET` | Your bucket name |
 | `S3_REGION` | `eu-central-1` |
-| `S3_ENDPOINT` | `https://<ref>.supabase.co/storage/v1/s3` |
+| `S3_ENDPOINT` | `https://<ref>.storage.supabase.co/storage/v1/s3` |
 | `S3_FORCE_PATH_STYLE` | `true` |
 | `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` | From the Storage S3 keys |
 | `LEGAL_PROVIDER_NAME` / `_ADDRESS` / `_EMAIL` | Operator identity for the Impressum |
@@ -167,7 +179,7 @@ TRUST_PROXY=true
 STORAGE_DRIVER=s3
 S3_BUCKET=documents
 S3_REGION=eu-central-1
-S3_ENDPOINT=https://<ref>.supabase.co/storage/v1/s3
+S3_ENDPOINT=https://<ref>.storage.supabase.co/storage/v1/s3
 S3_FORCE_PATH_STYLE=true
 S3_ACCESS_KEY_ID=<from Storage S3 keys>
 S3_SECRET_ACCESS_KEY=<from Storage S3 keys>
@@ -205,7 +217,7 @@ fly secrets set --config fly.worker.toml \
   APP_BASE_URL='https://your-domain' \
   AUTH_SECRET='...' TOKEN_SECRET='...' TRUST_PROXY=true \
   STORAGE_DRIVER=s3 S3_BUCKET=... S3_REGION=eu-central-1 \
-  S3_ENDPOINT='https://<ref>.supabase.co/storage/v1/s3' S3_FORCE_PATH_STYLE=true \
+  S3_ENDPOINT='https://<ref>.storage.supabase.co/storage/v1/s3' S3_FORCE_PATH_STYLE=true \
   S3_ACCESS_KEY_ID=... S3_SECRET_ACCESS_KEY=... \
   LEGAL_PROVIDER_NAME='...' LEGAL_PROVIDER_ADDRESS='...' LEGAL_PROVIDER_EMAIL='...'
 fly deploy --config fly.worker.toml
