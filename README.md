@@ -1,7 +1,10 @@
 # QCG Application & Onboarding Web Application  
 ## Concept for AZAV-Certified Measures under the Qualification Opportunities Act
 
-> **Developer quickstart** — architecture in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md);
+> **Developer quickstart** — diagrams of the deployment, the lead lifecycle, the
+> chasing loop and the tenancy model in
+> [docs/SYSTEM-OVERVIEW.md](docs/SYSTEM-OVERVIEW.md);
+> architecture in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md);
 > OpenRegister lead import (discovery, dedup, provenance, `import_runs`) in
 > [docs/REGISTER-IMPORT.md](docs/REGISTER-IMPORT.md); deploying to Vercel +
 > Supabase in [docs/DEPLOY-VERCEL-SUPABASE.md](docs/DEPLOY-VERCEL-SUPABASE.md)
