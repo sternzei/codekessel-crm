@@ -20,12 +20,22 @@ all live in it. Without it the app looks fine and quietly stops chasing anyone.
 
 ## 1. Supabase project
 
-Create a project in the **Frankfurt (eu-central-1)** region. Both connection
-strings live behind the **Connect** button at the top of the project dashboard
-(not under project settings, where they used to be). Keep three things:
+Create a project in an EU region — **Frankfurt (eu-central-1)** if the Vercel
+region below is left at `fra1`, so the web tier and the database sit in the same
+city. Whichever you pick, that region appears in the pooler hostname
+(`aws-0-<region>.pooler.supabase.com`) and in `S3_REGION`; the examples below
+use `eu-central-1` and need substituting if yours differs.
+
+Both connection strings live behind the **Connect** button at the top of the
+project dashboard (not under project settings, where they used to be). Keep
+three things:
 
 - **Direct connection**, used for migrations and by the worker. Runs as
-  `postgres`, the schema owner.
+  `postgres`, the schema owner. It resolves over IPv6 only unless the project
+  has the IPv4 add-on, so on most networks the **session pooler** (same port
+  `5432`, host `aws-0-<region>.pooler.supabase.com`) is the one that connects.
+  Session mode holds a real backend for the whole connection, so DDL and
+  `ALTER ROLE` behave exactly as they do on the direct link.
 - **Transaction pooler** connection (port `6543`), used by the web tier. Every
   serverless instance holds its own pool, so they must be multiplexed.
 - **Project ref**, the subdomain in `https://<ref>.supabase.co`.
@@ -142,6 +152,12 @@ them at the production database would let a branch write to real data.
 
 `env.ts` validates all of this at build time, so a missing value fails the
 deployment instead of surfacing as a 500 next Tuesday.
+
+Set them **before the first build**, not after it. Beyond that validation,
+`S3_ENDPOINT` is read while `next.config.ts` is evaluated, to name the one
+foreign origin the CSP's `connect-src` allows. A build that ran without it
+produces a policy the browser then uses to block every direct upload, and no
+amount of changing the variable afterwards fixes it until the next deploy.
 
 Two of them are worth dwelling on. `DB_POOL_MAX=1` exists because serverless
 inverts the usual pooling assumption: there is no single pool, there are as

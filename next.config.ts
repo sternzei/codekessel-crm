@@ -68,7 +68,9 @@ const securityHeaders = [
 const nextConfig: NextConfig = {
   // Emit a self-contained server bundle (.next/standalone/server.js) so the
   // production Docker image can run the web tier without the full node_modules.
-  output: "standalone",
+  // Vercel produces its own function bundles and sets VERCEL=1 during the build;
+  // asking for standalone there only duplicates the output.
+  output: process.env.VERCEL ? undefined : "standalone",
   // PDF generation reads these from disk at request time (documents/fonts.ts,
   // documents/ba-forms.ts). Static analysis cannot see a path built at runtime,
   // so without this they are missing from a serverless bundle and every

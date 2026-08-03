@@ -35,6 +35,9 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 
+# libpq password files, used when pointing psql at a hosted database
+.pgpass*
+
 # vercel
 .vercel
 
