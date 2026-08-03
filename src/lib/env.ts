@@ -186,7 +186,7 @@ const envSchema = z.object({
 });
 
 // Fail fast at startup: a missing secret must never surface as a runtime 500.
-export const env = envSchema.parse({
+const parsed = envSchema.safeParse({
   DATABASE_URL: process.env.DATABASE_URL,
   MIGRATION_DATABASE_URL: process.env.MIGRATION_DATABASE_URL,
   AUTH_SECRET: process.env.AUTH_SECRET,
@@ -230,6 +230,18 @@ export const env = envSchema.parse({
   LEGAL_SUPERVISORY_AUTHORITY: process.env.LEGAL_SUPERVISORY_AUTHORITY,
   LEGAL_PRIVACY_CONTACT: process.env.LEGAL_PRIVACY_CONTACT,
 });
+
+// A raw ZodError reaches a build log as an object dump whose `path: [Array]`
+// names nothing, which turns a one-line misconfiguration into a guessing game.
+// The only reason to validate here is to say which variable is wrong.
+if (!parsed.success) {
+  const problems = parsed.error.issues
+    .map((issue) => `  - ${issue.path.join(".") || "(root)"}: ${issue.message}`)
+    .join("\n");
+  throw new Error(`Invalid environment configuration:\n${problems}`);
+}
+
+export const env = parsed.data;
 
 if (env.AUTH_SECRET === env.TOKEN_SECRET) {
   throw new Error("AUTH_SECRET and TOKEN_SECRET must differ");
