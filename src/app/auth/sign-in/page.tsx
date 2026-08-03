@@ -50,62 +50,82 @@ export default async function SignInPage({
 
   return (
     <div className="auth-viewport">
-      <main className="auth-card">
-        <header>
-          <Image
-            src="/brand/codekessel-wordmark.png"
-            alt="CodeKessel"
-            width={1024}
-            height={298}
-            className="auth-wordmark"
-            priority
-            unoptimized
-          />
-          <h1>{t("title")}</h1>
-          <p style={{ marginTop: "var(--space-2)", color: "var(--color-ink-faint)", fontSize: "var(--text-sm)" }}>
-            {t("subtitle")}
-          </p>
-        </header>
-
-        {error === "rate" ? (
-          <p className="form-error">
-            Zu viele Anmeldeversuche. Bitte warten Sie einen Moment und
-            versuchen Sie es erneut.
-          </p>
-        ) : googleErrorKey ? (
-          <p className="form-error">{t(googleErrorKey)}</p>
-        ) : error ? (
-          <p className="form-error">{t("error")}</p>
-        ) : null}
-
-        <form action={login} style={{ display: "flex", flexDirection: "column", gap: "var(--space-4)" }}>
-          <div className="field">
-            <label htmlFor="email">{t("email")}</label>
-            <input id="email" name="email" type="email" autoComplete="email" required />
+      <div className="auth-shell">
+        {/* The wordmark's second half is white, so it only reads on a dark
+            surface — which is also where the brand panel belongs. */}
+        <aside className="auth-brand">
+          <span className="auth-brand-atmosphere" aria-hidden="true">
+            <Image
+              src="/brand/codekessel-mark.png"
+              alt=""
+              width={856}
+              height={908}
+              className="auth-brand-watermark"
+              priority
+            />
+          </span>
+          <div className="auth-brand-content">
+            <Image
+              src="/brand/codekessel-wordmark-on-dark.png"
+              alt="CodeKessel"
+              width={1024}
+              height={298}
+              className="auth-brand-wordmark"
+              priority
+              unoptimized
+            />
+            <p className="auth-brand-lead">{t("brand.lead")}</p>
+            <ul className="auth-brand-points">
+              <li>{t("brand.point1")}</li>
+              <li>{t("brand.point2")}</li>
+              <li>{t("brand.point3")}</li>
+            </ul>
           </div>
-          <div className="field">
-            <label htmlFor="password">{t("password")}</label>
-            <input id="password" name="password" type="password" autoComplete="current-password" required />
-          </div>
-          <button type="submit" className="button">
-            {t("submit")}
-          </button>
-        </form>
+        </aside>
 
-        {showGoogle ? (
-          <>
-            <p className="auth-divider">{t("google.divider")}</p>
-            <a
-              href="/auth/google/start"
-              className="button button--ghost auth-google"
-              aria-label={t("google.submit")}
-            >
-              <GoogleMark />
-              {t("google.submit")}
-            </a>
-          </>
-        ) : null}
-      </main>
+        <main className="auth-panel">
+          <header className="auth-panel-header">
+            <h1>{t("title")}</h1>
+            <p className="auth-subtitle">{t("subtitle")}</p>
+          </header>
+
+          {error === "rate" ? (
+            <p className="form-error">{t("rateLimited")}</p>
+          ) : googleErrorKey ? (
+            <p className="form-error">{t(googleErrorKey)}</p>
+          ) : error ? (
+            <p className="form-error">{t("error")}</p>
+          ) : null}
+
+          <form action={login} className="auth-form">
+            <div className="field">
+              <label htmlFor="email">{t("email")}</label>
+              <input id="email" name="email" type="email" autoComplete="email" required />
+            </div>
+            <div className="field">
+              <label htmlFor="password">{t("password")}</label>
+              <input id="password" name="password" type="password" autoComplete="current-password" required />
+            </div>
+            <button type="submit" className="button">
+              {t("submit")}
+            </button>
+          </form>
+
+          {showGoogle ? (
+            <>
+              <p className="auth-divider">{t("google.divider")}</p>
+              <a
+                href="/auth/google/start"
+                className="button button--ghost auth-google"
+                aria-label={t("google.submit")}
+              >
+                <GoogleMark />
+                {t("google.submit")}
+              </a>
+            </>
+          ) : null}
+        </main>
+      </div>
       <LegalLinks />
     </div>
   );

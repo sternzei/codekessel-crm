@@ -22,6 +22,13 @@
     "email": "Email",
     "password": "Password",
     "submit": "Sign in",
-    "error": "Sign-in failed. Please check email and password."
+    "error": "Sign-in failed. Please check email and password.",
+    "rateLimited": "Too many sign-in attempts. Please wait a moment and try again.",
+    "brand": {
+      "lead": "From the first call to enrolment — one case, one trail.",
+      "point1": "Tasks come from status changes, not from sticky notes.",
+      "point2": "Participants and employers work through secure one-time links, with no account.",
+      "point3": "Every step stays accountable in the activity log."
+    }
   }
 }

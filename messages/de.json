@@ -23,6 +23,13 @@
     "password": "Passwort",
     "submit": "Anmelden",
     "error": "Anmeldung fehlgeschlagen. Bitte prüfen Sie E-Mail und Passwort.",
+    "rateLimited": "Zu viele Anmeldeversuche. Bitte warten Sie einen Moment und versuchen Sie es erneut.",
+    "brand": {
+      "lead": "Von der ersten Ansprache bis zur Anmeldung — ein Vorgang, eine Spur.",
+      "point1": "Aufgaben entstehen aus Statuswechseln, nicht aus Notizzetteln.",
+      "point2": "Teilnehmende und Arbeitgeber arbeiten über sichere Einmal-Links, ohne Konto.",
+      "point3": "Jeder Schritt bleibt im Verlauf nachvollziehbar."
+    },
     "google": {
       "submit": "Mit Google anmelden",
       "divider": "oder",

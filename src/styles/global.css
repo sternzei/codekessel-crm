@@ -627,6 +627,167 @@ a:focus-visible {
   gap: var(--space-4);
 }
 
+/* Sign-in only: a dark brand half beside the form. `overflow: hidden` is what
+   keeps the dark panel inside the rounded corner instead of squaring it off. */
+.auth-shell {
+  width: 100%;
+  max-width: 58rem;
+  display: grid;
+  grid-template-columns: 1.05fr 1fr;
+  background: var(--color-surface);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-raised);
+  overflow: hidden;
+}
+
+.auth-brand {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  padding: var(--space-8);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--space-6);
+  color: var(--color-sidebar-text);
+  background:
+    radial-gradient(34rem 22rem at 6% 112%, rgb(143 20 224 / 0.5), transparent 62%),
+    radial-gradient(24rem 16rem at 98% -12%, rgb(143 20 224 / 0.26), transparent 60%),
+    var(--color-sidebar);
+}
+
+.auth-brand-atmosphere {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+
+.auth-brand-watermark {
+  position: absolute;
+  right: -30%;
+  bottom: -22%;
+  width: 96%;
+  height: auto;
+  opacity: 0.16;
+  filter: saturate(1.2);
+  transform: rotate(-8deg);
+  mask-image: linear-gradient(140deg, transparent 10%, black 48%, transparent 96%);
+}
+
+.auth-brand-content {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+.auth-brand-wordmark {
+  display: block;
+  width: min(100%, 200px);
+  height: auto;
+}
+
+.auth-brand-lead {
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: 600;
+  line-height: 1.4;
+  color: white;
+  text-wrap: balance;
+}
+
+.auth-brand-points {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  color: var(--color-sidebar-muted);
+}
+
+.auth-brand-points li {
+  position: relative;
+  padding-left: var(--space-5);
+}
+
+.auth-brand-points li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.5em;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  box-shadow: 0 0 0 3px rgb(143 20 224 / 0.22);
+}
+
+.auth-panel {
+  padding: var(--space-8) var(--space-6);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--space-5);
+  background: var(--color-surface);
+}
+
+.auth-panel-header h1 {
+  margin: 0;
+}
+
+.auth-subtitle {
+  margin: var(--space-2) 0 0;
+  color: var(--color-ink-faint);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+/* Roomier controls than the dense internal screens: this page is one decision,
+   not a working surface. */
+.auth-panel .field input {
+  padding: var(--space-3);
+  background: var(--color-surface);
+}
+
+.auth-panel .button {
+  width: 100%;
+  padding: var(--space-3) var(--space-4);
+}
+
+@media (max-width: 880px) {
+  .auth-shell {
+    grid-template-columns: 1fr;
+    max-width: 26rem;
+  }
+
+  /* Collapsed to a masthead: the value copy is not worth a scroll on a phone,
+     but the brand still has to survive the fold. */
+  .auth-brand {
+    padding: var(--space-6);
+    gap: var(--space-4);
+  }
+
+  .auth-brand-points {
+    display: none;
+  }
+
+  .auth-brand-lead {
+    font-size: var(--text-base);
+  }
+}
+
 .auth-wordmark {
   width: auto;
   height: 24px;
