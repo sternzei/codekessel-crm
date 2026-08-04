@@ -32,6 +32,9 @@ export type TransitionEvent = {
   status: string;
   actorKind: ActorKind;
   actorUserId?: string;
+  // Detail the rule cannot know, written onto every task this event creates.
+  // Rule titles are fixed templates, so this is where a caller says *why*.
+  taskDescription?: string;
   // Owner resolution context: which concrete people/records a matched rule
   // may assign its task to. The caller knows these; the rule only knows roles.
   context: {
@@ -138,6 +141,7 @@ export async function processTransition(
         tenantId: event.tenantId,
         type: rule.taskType,
         title: rule.titleTemplate,
+        description: event.taskDescription ?? null,
         status: "open",
         ownerKind: rule.ownerKind,
         ...owner,

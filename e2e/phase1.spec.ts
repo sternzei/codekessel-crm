@@ -1,4 +1,4 @@
-import { expect, test } from "./fixtures";
+import { expect, onBaseUrl, test } from "./fixtures";
 import { execSync } from "node:child_process";
 
 // Phase 1 smoke: internal auth, RLS-backed pipeline, tokenized task loop.
@@ -6,9 +6,9 @@ import { execSync } from "node:child_process";
 
 function reseedAndGetMagicLink(): string {
   const output = execSync("pnpm db:seed", { encoding: "utf8" });
-  const match = output.match(/http:\/\/localhost:3000\/t\/\S+/);
+  const match = output.match(/https?:\/\/\S+\/t\/\S+/);
   if (!match) throw new Error("Seed did not print a magic link");
-  return match[0];
+  return onBaseUrl(match[0]);
 }
 
 test.describe.configure({ mode: "serial" });

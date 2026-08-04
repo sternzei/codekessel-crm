@@ -106,6 +106,32 @@ test("createStorageFromConfig throws when s3 is selected without a bucket", () =
   );
 });
 
+test("createStorageFromConfig refuses a custom endpoint without keys", () => {
+  // Undefined credentials send the SDK to the instance metadata address, which
+  // no custom endpoint can answer — the call hangs instead of failing.
+  assert.throws(
+    () =>
+      createStorageFromConfig({
+        driver: "s3",
+        localRoot: "/tmp/x",
+        s3: {
+          bucket: "qcg-docs",
+          endpoint: "https://project.storage.supabase.co/storage/v1/s3",
+        },
+      }),
+    /S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY are required/,
+  );
+});
+
+test("createStorageFromConfig still allows AWS itself to resolve credentials", () => {
+  const mockClient = { send: async () => ({}) } as unknown as S3Client;
+  const adapter = createStorageFromConfig(
+    { driver: "s3", localRoot: "/tmp/x", s3: { bucket: "qcg-docs" } },
+    { s3Client: mockClient },
+  );
+  assert.ok(adapter instanceof S3StorageAdapter);
+});
+
 test("createStorageFromConfig returns the db driver when selected", () => {
   const { handle } = makeFakeDb();
   const adapter = createStorageFromConfig(

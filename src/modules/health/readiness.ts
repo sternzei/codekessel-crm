@@ -85,6 +85,41 @@ const checkOutbox = async (): Promise<CheckStatus> => {
   }
 };
 
+// A probe that never answers is worse than one reporting a failure: the
+// monitor sees a timeout with no detail, and the endpoint holds a serverless
+// invocation open. Each check therefore gets a hard ceiling. Five seconds is
+// far beyond a healthy round trip to the database or the bucket.
+const CHECK_TIMEOUT_MS = 5_000;
+
+const withTimeout = async (
+  name: CheckName,
+  check: () => Promise<CheckStatus>,
+  timeoutMs: number,
+): Promise<CheckStatus> => {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const expiry = new Promise<CheckStatus>((resolve) => {
+    timer = setTimeout(() => {
+      captureException(
+        new Error(`readiness check "${name}" exceeded ${timeoutMs}ms`),
+        `readiness: ${name} timed out`,
+      );
+      resolve("failed");
+    }, timeoutMs);
+  });
+  try {
+    return await Promise.race([check(), expiry]);
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
+const DEFAULT_CHECKS: Readonly<Record<CheckName, () => Promise<CheckStatus>>> = {
+  database: checkDatabase,
+  storage: checkStorage,
+  worker: checkWorker,
+  outbox: checkOutbox,
+};
+
 const worstOf = (statuses: readonly CheckStatus[]): ReadinessReport["status"] => {
   if (statuses.includes("failed")) return "failed";
   if (statuses.includes("degraded")) return "degraded";
@@ -97,12 +132,18 @@ const worstOf = (statuses: readonly CheckStatus[]): ReadinessReport["status"] =>
  * outbox stuck mid-send. Deliberately returns statuses only (no counts): the
  * endpoint is unauthenticated.
  */
-export async function collectReadiness(): Promise<ReadinessReport> {
+export async function collectReadiness({
+  checks = DEFAULT_CHECKS,
+  timeoutMs = CHECK_TIMEOUT_MS,
+}: {
+  checks?: Readonly<Record<CheckName, () => Promise<CheckStatus>>>;
+  timeoutMs?: number;
+} = {}): Promise<ReadinessReport> {
   const [database, storage, worker, outbox] = await Promise.all([
-    checkDatabase(),
-    checkStorage(),
-    checkWorker(),
-    checkOutbox(),
+    withTimeout("database", checks.database, timeoutMs),
+    withTimeout("storage", checks.storage, timeoutMs),
+    withTimeout("worker", checks.worker, timeoutMs),
+    withTimeout("outbox", checks.outbox, timeoutMs),
   ]);
   return {
     status: worstOf([database, storage, worker, outbox]),

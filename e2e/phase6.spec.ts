@@ -1,5 +1,5 @@
 import type { Page } from "@playwright/test";
-import { expect, test } from "./fixtures";
+import { expect, onBaseUrl, test } from "./fixtures";
 import { execSync } from "node:child_process";
 
 // Phase 6 smoke: submission readiness gate, the full submission state machine
@@ -86,7 +86,7 @@ test("full submission flow: prepare → employer confirm → approve → enrolle
     .locator(".info-banner a", { hasText: "/t/" })
     .getAttribute("href");
   if (!consentHref) throw new Error("no consent link minted");
-  await page.goto(consentHref);
+  await page.goto(onBaseUrl(consentHref));
   await expect(page.locator("h1")).toContainText("Einwilligungen");
   await page.locator("input[name=privacy]").check();
   await page.locator("input[name=contact]").check();

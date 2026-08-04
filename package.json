@@ -12,6 +12,7 @@
     "db:migrate": "drizzle-kit migrate",
     "db:seed": "node --import tsx --env-file=.env.local src/db/seed.ts",
     "bootstrap:tenant": "node --import tsx --env-file=.env.local scripts/bootstrap-tenant.ts",
+    "seed:demo": "node --import tsx --env-file=.env.local scripts/seed-demo-data.ts",
     "jobs:dev": "node --import tsx --env-file=.env.local src/jobs/worker.ts --loop",
     "jobs:once": "node --import tsx --env-file=.env.local src/jobs/worker.ts --once",
     "email:test": "node --import tsx --env-file=.env.local scripts/send-test-email.ts",

@@ -58,16 +58,29 @@ export function createStorageFromConfig(
     if (!s3?.bucket) {
       throw new Error("S3_BUCKET is required when STORAGE_DRIVER=s3");
     }
+    const hasKeys = Boolean(s3.accessKeyId && s3.secretAccessKey);
+    // Leaving credentials undefined hands the SDK its default provider chain,
+    // which ends up probing the cloud instance metadata address. On a custom
+    // endpoint (Supabase, MinIO) there is nothing there to answer, so the call
+    // hangs for as long as the platform allows instead of failing. A named
+    // endpoint therefore demands named keys.
+    if (!hasKeys && s3.endpoint) {
+      throw new Error(
+        "S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY are required when S3_ENDPOINT is set",
+      );
+    }
     const client =
       deps.s3Client ??
       new S3Client({
         region: s3.region,
         endpoint: s3.endpoint,
         forcePathStyle: s3.forcePathStyle,
-        credentials:
-          s3.accessKeyId && s3.secretAccessKey
-            ? { accessKeyId: s3.accessKeyId, secretAccessKey: s3.secretAccessKey }
-            : undefined,
+        credentials: hasKeys
+          ? {
+              accessKeyId: s3.accessKeyId as string,
+              secretAccessKey: s3.secretAccessKey as string,
+            }
+          : undefined,
       });
     return new S3StorageAdapter({
       client,

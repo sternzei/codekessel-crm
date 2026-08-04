@@ -1,5 +1,5 @@
 import type { Page } from "@playwright/test";
-import { expect, test } from "./fixtures";
+import { expect, onBaseUrl, test } from "./fixtures";
 import { execSync } from "node:child_process";
 
 // Phase 8 smoke: pipeline filter URL-persistence, the register import happy
@@ -24,9 +24,9 @@ async function signIn(page: Page, email = "berater@demo.de"): Promise<void> {
 
 test.beforeAll(() => {
   const output = execSync("pnpm db:seed", { encoding: "utf8" });
-  const match = output.match(/http:\/\/localhost:3000\/t\/\S+/);
+  const match = output.match(/https?:\/\/\S+\/t\/\S+/);
   if (!match) throw new Error("Seed did not print a magic link");
-  magicLink = match[0];
+  magicLink = onBaseUrl(match[0]);
 });
 
 test("pipeline filter persists in the URL and survives reload", async ({

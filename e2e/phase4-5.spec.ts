@@ -1,5 +1,5 @@
 import type { Page } from "@playwright/test";
-import { expect, test } from "./fixtures";
+import { expect, onBaseUrl, test } from "./fixtures";
 import { execSync } from "node:child_process";
 
 // Phase 4+5 smoke: employer setup assistant, participant task pages,
@@ -16,7 +16,7 @@ test.beforeAll(() => {
       new RegExp(`${label}[^\\n]*\\n\\s+(http\\S+)`),
     );
     if (!match) throw new Error(`Seed did not print link for ${label}`);
-    return match[1];
+    return onBaseUrl(match[1]);
   };
   links.availability = grab("Verfügbarkeit");
   links.contact = grab("Kontaktdaten korrigieren");
@@ -181,17 +181,24 @@ test("missing data creates a data_missing document plus a clarification task", a
   // Tarek has no measure/date of birth → participant form cannot be filled.
   await page.goto("/documents");
   await page.getByRole("link", { name: "Tarek Aziz" }).click();
+
+  // The gap is named before the button is pressed, not only afterwards.
+  const generate = page.locator(".doc-generate", {
+    hasText: "Teilnehmer-Stammblatt",
+  });
+  await expect(generate.getByText(/^Es fehlt:/)).toContainText("Maßnahme");
+
   await page
     .getByRole("button", { name: "Teilnehmer-Stammblatt" })
     .click();
-  await expect(
-    page
-      .locator(".note", { hasText: "Teilnehmer-Stammblatt" })
-      .getByText("Daten fehlen"),
-  ).toBeVisible();
+  const row = page.locator(".note", { hasText: "Teilnehmer-Stammblatt" });
+  await expect(row.getByText("Daten fehlen")).toBeVisible();
+  await expect(row.getByText(/^Es fehlt:/)).toContainText("Maßnahme");
 
+  // The task says which field is missing instead of only that something is.
   await page.goto("/tasks");
   await expect(
     page.getByText("Fehlende Dokumentdaten ergänzen"),
   ).toBeVisible();
+  await expect(page.getByText(/Teilnehmer-Stammblatt — Es fehlt:/)).toBeVisible();
 });

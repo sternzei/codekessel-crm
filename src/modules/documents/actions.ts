@@ -18,6 +18,11 @@ import {
   type DocumentSignatureRequirement,
 } from "@/modules/signatures/requirements";
 import { collectApplicationData, collectCompanyCohort, type ApplicationData } from "./data";
+import {
+  describeMissingData,
+  findMissingDocumentData,
+  type DocumentType,
+} from "./prerequisites";
 import type { CohortParticipant } from "./ba-forms";
 import {
   generateArbeitnehmererklaerung,
@@ -39,7 +44,6 @@ type DocSpec = {
    * split logic — see docs/ESERVICE-ANTRAG.md). */
   path: "single" | "company" | "internal";
   generate: (d: ApplicationData, cohort: CohortParticipant[]) => Promise<GeneratedFile>;
-  requires: (d: ApplicationData) => boolean;
   /** Signature classification for this form (Epic C), or null when the form
    * needs no digital signature. Derived from the single shared config so the
    * doc catalogue, signing action and readiness gate never diverge. */
@@ -61,19 +65,19 @@ function withSignatures<T extends Record<string, Omit<DocSpec, "signature">>>(
   return out;
 }
 
-const DOC_TYPES = withSignatures({
+// Typed against the prerequisite catalogue so a new document type cannot ship
+// with a generator but no declared prerequisites, or the other way round.
+const DOC_TYPES: Record<DocumentType, DocSpec> = withSignatures({
   // ---- Einzelantrag (eService "Arbeitsentgeltzuschuss – Antrag", 6 Schritte)
   traegerbescheinigung: {
     title: "Trägerbescheinigung (BA ba042369)",
     path: "single",
     generate: (d) => generateTraegerbescheinigung(d),
-    requires: (d) => Boolean(d.measure?.startDate),
   },
   eservice_single: {
     title: "eService-Begleitblatt Einzelantrag",
     path: "single",
     generate: (d) => generateEServiceCompanionSingle(d),
-    requires: (d) => Boolean(d.employer && d.measure),
   },
   // Employee declaration (single upload). Needs the employer (Betrieb) it
   // refers to; missing → data_missing + clarification task (existing behaviour).
@@ -81,7 +85,6 @@ const DOC_TYPES = withSignatures({
     title: "Arbeitnehmererklärung (BA ba042354)",
     path: "single",
     generate: (d) => generateArbeitnehmererklaerung(d),
-    requires: (d) => Boolean(d.employer),
   },
   // Power of attorney, participant-signed. Authorises the employer (Betrieb);
   // needs the employer present, else data_missing + clarification task.
@@ -89,7 +92,6 @@ const DOC_TYPES = withSignatures({
     title: "Vollmacht (BA ba051211)",
     path: "single",
     generate: (d) => generateVollmacht(d),
-    requires: (d) => Boolean(d.employer),
   },
   // Participant questionnaire; a linked measure is the hard prerequisite,
   // else data_missing + clarification task.
@@ -97,44 +99,37 @@ const DOC_TYPES = withSignatures({
     title: "Teilnehmer-Fragebogen (BA ba046157)",
     path: "single",
     generate: (d) => generateFragebogen(d),
-    requires: (d) => Boolean(d.measure),
   },
   // ---- Sammelantrag (Firma, eService 7 Schritte)
   teilnehmerliste: {
     title: "Sammelantrag-Teilnehmerliste (BA I FW 501/502)",
     path: "company",
     generate: (d, cohort) => generateTeilnehmerliste(d, cohort),
-    requires: (d) => Boolean(d.employer && d.measure),
   },
   eservice_company: {
     title: "eService-Begleitblatt Sammelantrag",
     path: "company",
     generate: (d, cohort) => generateEServiceCompanionCompany(d, cohort.length),
-    requires: (d) => Boolean(d.employer && d.measure),
   },
   // ---- Interne Dokumente
   participant_form: {
     title: "Teilnehmer-Stammblatt",
     path: "internal",
     generate: (d) => generateParticipantForm(d),
-    requires: (d) =>
-      Boolean(d.measure && d.participant.dateOfBirth && d.participant.street),
   },
   cost_overview: {
     title: "Kostenübersicht",
     path: "internal",
     generate: (d) => generateCostOverview(d),
-    requires: (d) => Boolean(d.measure?.costEur),
   },
   employer_datasheet: {
     title: "Arbeitgeber-Datenblatt",
     path: "internal",
     generate: (d) => generateEmployerDatasheet(d),
-    requires: (d) => Boolean(d.employer),
   },
 });
 
-type DocType = keyof typeof DOC_TYPES;
+type DocType = DocumentType;
 
 /**
  * Generates (or flags as data_missing) one document from central data.
@@ -173,10 +168,9 @@ export async function generateDocument(formData: FormData): Promise<void> {
             data.participant.measureId,
           )
         : [];
-    let file: GeneratedFile | null = null;
-    if (spec.requires(data)) {
-      file = await spec.generate(data, cohort);
-    }
+    const missing = findMissingDocumentData(type, data);
+    const file: GeneratedFile | null =
+      missing.length === 0 ? await spec.generate(data, cohort) : null;
 
     const [doc] = await tx
       .insert(documents)
@@ -200,6 +194,12 @@ export async function generateDocument(formData: FormData): Promise<void> {
       status: doc.status,
       actorKind: "internal_user",
       actorUserId: session.id,
+      // Names the gap on the follow-up task; without it the consultant reads
+      // "Fehlende Dokumentdaten ergänzen" and has to guess which field.
+      taskDescription:
+        missing.length > 0
+          ? `${spec.title} — ${describeMissingData(missing)}`
+          : undefined,
       context: {
         participantId,
         employerId: data.participant.employerId ?? undefined,

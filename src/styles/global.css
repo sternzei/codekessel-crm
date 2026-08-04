@@ -918,6 +918,19 @@ a:focus-visible {
   font-weight: 500;
 }
 
+/* A generate button that carries its own prerequisite warning underneath. */
+.doc-generate {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1);
+}
+
+.doc-generate-missing {
+  font-size: var(--text-xs);
+  color: var(--color-danger);
+}
+
 .quick-actions {
   display: flex;
   flex-wrap: wrap;

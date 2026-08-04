@@ -193,6 +193,9 @@ export default async function TasksPage({
               >
                 <div>
                   <div className="title">{task.title}</div>
+                  {task.description ? (
+                    <div className="meta">{task.description}</div>
+                  ) : null}
                   <div className="meta">
                     {OWNER_LABEL[task.ownerKind]}
                     {task.ownerName ? ` · ${task.ownerName}` : ""}

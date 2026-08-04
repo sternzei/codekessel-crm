@@ -7,6 +7,9 @@ import { buildTaskAccessCondition } from "@/modules/auth/task-scope";
 export type OpenTask = {
   id: string;
   title: string;
+  // Detail supplied by whoever triggered the transition — rule titles are
+  // fixed templates, so this is where a task says which field is missing.
+  description: string | null;
   type: string;
   status: string;
   ownerKind: "internal_user" | "participant" | "employer";
@@ -30,6 +33,7 @@ export async function listOpenTasks(
     .select({
       id: tasks.id,
       title: tasks.title,
+      description: tasks.description,
       type: tasks.type,
       status: tasks.status,
       ownerKind: tasks.ownerKind,

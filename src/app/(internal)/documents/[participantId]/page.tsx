@@ -15,9 +15,53 @@ import {
   evaluateUploadSet,
   resolveApplicantType,
 } from "@/modules/applications/upload-set";
+import type { ApplicationData } from "@/modules/documents/data";
+import {
+  describeMissingData,
+  findMissingDocumentData,
+  isDocumentType,
+  type DocumentType,
+} from "@/modules/documents/prerequisites";
 import { fmtDateTime } from "../../leads/[id]/labels";
 
 export const dynamic = "force-dynamic";
+
+/**
+ * One generate button. Prerequisites are read from the same catalogue the
+ * server action uses, so the consultant learns what is missing here rather
+ * than from an empty "Daten fehlen" row afterwards. The button stays enabled:
+ * pressing it deliberately raises the clarification task.
+ */
+function GenerateDocumentButton({
+  participantId,
+  type,
+  label,
+  data,
+  ghost = false,
+}: {
+  participantId: string;
+  type: DocumentType;
+  label: string;
+  data: ApplicationData;
+  ghost?: boolean;
+}) {
+  const missing = findMissingDocumentData(type, data);
+  return (
+    <form action={generateDocument} className="doc-generate">
+      <input type="hidden" name="participantId" value={participantId} />
+      <input type="hidden" name="type" value={type} />
+      <button
+        type="submit"
+        className={ghost ? "button button--sm button--ghost" : "button button--sm"}
+      >
+        {label}
+      </button>
+      {missing.length > 0 ? (
+        <span className="doc-generate-missing">{describeMissingData(missing)}</span>
+      ) : null}
+    </form>
+  );
+}
 
 const DOC_STATUS: Record<string, { label: string; cls: string }> = {
   data_missing: { label: "Daten fehlen", cls: "badge badge--danger" },
@@ -151,13 +195,13 @@ export default async function DocumentChecklistPage({
                   ["eservice_single", "eService-Begleitblatt"],
                 ] as const
               ).map(([type, label]) => (
-                <form key={type} action={generateDocument}>
-                  <input type="hidden" name="participantId" value={p.id} />
-                  <input type="hidden" name="type" value={type} />
-                  <button type="submit" className="button button--sm">
-                    {label}
-                  </button>
-                </form>
+                <GenerateDocumentButton
+                  key={type}
+                  participantId={p.id}
+                  type={type}
+                  label={label}
+                  data={data}
+                />
               ))}
             </div>
           </section>
@@ -177,13 +221,13 @@ export default async function DocumentChecklistPage({
                   ["fragebogen", "Teilnehmer-Fragebogen (BA-Formular)"],
                 ] as const
               ).map(([type, label]) => (
-                <form key={type} action={generateDocument}>
-                  <input type="hidden" name="participantId" value={p.id} />
-                  <input type="hidden" name="type" value={type} />
-                  <button type="submit" className="button button--sm">
-                    {label}
-                  </button>
-                </form>
+                <GenerateDocumentButton
+                  key={type}
+                  participantId={p.id}
+                  type={type}
+                  label={label}
+                  data={data}
+                />
               ))}
             </div>
           </section>
@@ -205,13 +249,13 @@ export default async function DocumentChecklistPage({
                   ["eservice_company", "eService-Begleitblatt"],
                 ] as const
               ).map(([type, label]) => (
-                <form key={type} action={generateDocument}>
-                  <input type="hidden" name="participantId" value={p.id} />
-                  <input type="hidden" name="type" value={type} />
-                  <button type="submit" className="button button--sm">
-                    {label}
-                  </button>
-                </form>
+                <GenerateDocumentButton
+                  key={type}
+                  participantId={p.id}
+                  type={type}
+                  label={label}
+                  data={data}
+                />
               ))}
             </div>
           </section>
@@ -225,13 +269,14 @@ export default async function DocumentChecklistPage({
                   ["employer_datasheet", "Arbeitgeber-Datenblatt"],
                 ] as const
               ).map(([type, label]) => (
-                <form key={type} action={generateDocument}>
-                  <input type="hidden" name="participantId" value={p.id} />
-                  <input type="hidden" name="type" value={type} />
-                  <button type="submit" className="button button--sm button--ghost">
-                    {label}
-                  </button>
-                </form>
+                <GenerateDocumentButton
+                  key={type}
+                  participantId={p.id}
+                  type={type}
+                  label={label}
+                  data={data}
+                  ghost
+                />
               ))}
             </div>
             <p style={{ fontSize: "var(--text-xs)", color: "var(--color-ink-faint)" }}>
@@ -305,6 +350,14 @@ export default async function DocumentChecklistPage({
                     {fmtDateTime(doc.createdAt)}
                     {doc.sha256 ? ` · SHA-256 ${doc.sha256.slice(0, 12)}…` : ""}
                   </p>
+                  {/* Recomputed from current data, so the row stops complaining
+                      as soon as the field is filled in. */}
+                  {doc.status === "data_missing" && isDocumentType(doc.type) ? (
+                    <p className="meta" role="status">
+                      {describeMissingData(findMissingDocumentData(doc.type, data))}
+                      {" — danach erneut erzeugen."}
+                    </p>
+                  ) : null}
                   {sigs.map((s) => (
                     <p key={s.id} className="meta">
                       Signatur ({s.signerKind === "participant" ? "Teilnehmer:in" : "Arbeitgeber"}):{" "}

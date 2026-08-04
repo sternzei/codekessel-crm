@@ -1,5 +1,5 @@
 import type { Page } from "@playwright/test";
-import { expect, test } from "./fixtures";
+import { baseUrl, expect, onBaseUrl, test } from "./fixtures";
 import { execSync } from "node:child_process";
 
 // Phase 9 smoke: trust boundaries (Sprint 2 hardening).
@@ -17,7 +17,6 @@ import { execSync } from "node:child_process";
 
 test.describe.configure({ mode: "serial" });
 
-const BASE = "http://localhost:3000";
 
 async function signIn(page: Page, email = "berater@demo.de"): Promise<void> {
   await page.goto("/auth/sign-in");
@@ -39,7 +38,7 @@ test("login rate limit keys on the last x-forwarded-for entry", async ({
   const lastHop = `203.0.113.${Math.floor(Math.random() * 200) + 10}`;
   const openLogin = async (xff: string) => {
     const context = await browser.newContext({
-      baseURL: BASE,
+      baseURL: baseUrl,
       extraHTTPHeaders: { "x-forwarded-for": xff },
     });
     return context.newPage();
@@ -104,10 +103,11 @@ test("upload flow rejects fake PNGs before burn, accepts real ones", async ({
     .locator(".info-banner a", { hasText: "/t/" })
     .getAttribute("href");
   if (!uploadHref) throw new Error("no upload link minted");
+  const uploadLink = onBaseUrl(uploadHref);
 
   // Fake PNG: right extension + MIME, garbage bytes → rejected, task NOT
   // burned (validation happens before the burn gate).
-  await page.goto(uploadHref);
+  await page.goto(uploadLink);
   await expect(page.locator("h1")).toContainText("Unterlagen hochladen");
   await page.locator("#files").setInputFiles({
     name: "nachweis.png",
@@ -120,7 +120,7 @@ test("upload flow rejects fake PNGs before burn, accepts real ones", async ({
 
   // The task survived: the same link still serves the form, and a genuine
   // 1x1 PNG completes it.
-  await page.goto(uploadHref);
+  await page.goto(uploadLink);
   await expect(page.locator("h1")).toContainText("Unterlagen hochladen");
   await page.locator("#files").setInputFiles({
     name: "nachweis.png",

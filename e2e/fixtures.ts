@@ -28,4 +28,19 @@ export const test = base.extend({
   },
 });
 
+export const baseUrl = process.env.E2E_BASE_URL ?? "http://localhost:3000";
+
+/**
+ * Points a link the app minted at the server under test. Magic links carry the
+ * absolute APP_BASE_URL, so a suite run against any other port would otherwise
+ * navigate away to whatever happens to answer on the configured one.
+ */
+export const onBaseUrl = (link: string): string => {
+  const target = new URL(link);
+  const base = new URL(baseUrl);
+  target.protocol = base.protocol;
+  target.host = base.host;
+  return target.toString();
+};
+
 export { expect };
