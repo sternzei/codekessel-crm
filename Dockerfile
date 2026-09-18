@@ -66,6 +66,7 @@ COPY --from=build /app/templates ./templates
 # PDF text fonts — without these, every document with a non-Windows-1252
 # character in it fails to render (see src/modules/documents/fonts.ts).
 COPY --from=build /app/assets ./assets
+COPY --from=build /app/content ./content
 COPY --from=build /app/package.json ./package.json
 COPY --from=build /app/drizzle.config.ts ./drizzle.config.ts
 

@@ -77,7 +77,11 @@ const nextConfig: NextConfig = {
   // document turns into a 500 — on Vercel, where there is no image to copy
   // them into, that is the difference between working and not.
   outputFileTracingIncludes: {
-    "/**": ["./assets/fonts/**", "./templates/pdf/**"],
+    "/**": [
+      "./assets/fonts/**",
+      "./templates/pdf/**",
+      "./content/academy/**",
+    ],
   },
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];

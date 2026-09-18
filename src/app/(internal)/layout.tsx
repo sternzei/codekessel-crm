@@ -2,7 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { getTranslations } from "next-intl/server";
 import { redirect } from "next/navigation";
-import { SidebarNav } from "@/components/internal/SidebarNav";
+import { SidebarNav, type NavItem } from "@/components/internal/SidebarNav";
 import { logout } from "@/modules/auth/actions";
 import {
   canManageUsers,
@@ -19,7 +19,7 @@ export default async function InternalLayout({
   const t = await getTranslations("nav");
   const tApp = await getTranslations("app");
 
-  const items = [
+  const items: NavItem[] = [
     { href: "/pipeline", label: t("pipeline") },
     { href: "/tasks", label: t("tasks") },
     { href: "/outbox", label: t("outbox") },
@@ -36,6 +36,11 @@ export default async function InternalLayout({
       ? [{ href: "/users", label: t("users") }]
       : []),
     { href: "/hilfe", label: t("help") },
+    {
+      href: "/hilfe/academy",
+      label: t("academy"),
+      openInNewTab: true,
+    },
   ];
 
   return (

@@ -177,6 +177,21 @@ export const HelpCenter = ({ viewerRole, viewerName }: HelpCenterProps) => {
         </div>
       </section>
 
+      <a
+        href="/hilfe/academy"
+        className="help-academy-card"
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label="QCG CRM Academy (öffnet in neuem Tab)"
+      >
+        <span className="help-eyebrow">Academy</span>
+        <strong>QCG CRM Academy</strong>
+        <span>
+          Vollständiges Handbuch mit Tour, Rollen, Funktionen und Übungen —
+          öffnet in einem neuen Tab.
+        </span>
+      </a>
+
       <section className="help-featured" aria-label="Empfohlen für Ihre Rolle">
         <div className="help-section-head">
           <h2>Für {HELP_ROLE_LABELS[viewerRole]}</h2>

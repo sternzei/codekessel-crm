@@ -14,6 +14,7 @@
     "reports": "Berichte",
     "users": "Benutzer",
     "help": "Hilfe",
+    "academy": "Hilfe / Academy",
     "signOut": "Abmelden"
   },
   "auth": {
@@ -90,6 +91,7 @@
       "opening": "WhatsApp wird geöffnet …",
       "opened": "WhatsApp geöffnet — bitte manuell senden",
       "open": "WhatsApp öffnen",
+      "fallback": "Kein Fenster geöffnet? Direkt öffnen",
       "errors": {
         "no_phone": "Keine Telefonnummer hinterlegt — WhatsApp nicht möglich.",
         "not_applicable": "Aufgabe eignet sich nicht für WhatsApp.",

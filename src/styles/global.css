@@ -1608,6 +1608,35 @@ a:focus-visible {
   text-decoration: underline;
 }
 
+
+.help-academy-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.35rem;
+  padding: var(--space-4) var(--space-5);
+  border-radius: var(--radius-lg);
+  border: 1px solid rgb(143 20 224 / 0.28);
+  background: linear-gradient(165deg, #fcf8ff 0%, #fff 60%);
+  text-decoration: none;
+  color: inherit;
+  box-shadow: var(--shadow-card);
+}
+
+.help-academy-card:hover {
+  border-color: rgb(143 20 224 / 0.55);
+}
+
+.help-academy-card strong {
+  font-size: var(--text-lg);
+  color: var(--color-ink);
+}
+
+.help-academy-card > span:last-child {
+  color: var(--color-ink-soft);
+  font-size: var(--text-sm);
+}
+
 .help-center {
   display: flex;
   flex-direction: column;
@@ -1970,3 +1999,4 @@ a:focus-visible {
     max-height: none;
   }
 }
+
